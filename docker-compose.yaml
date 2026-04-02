@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_poc_tfg
+    environment:
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc5432
+      POSTGRES_DB: tfgdb
+    ports:
+      - "5432:5432"
+
+  mysql:
+    image: mysql:8
+    container_name: mysql_poc_tfg
+    environment:
+      MYSQL_ROOT_PASSWORD: pocroot
+      MYSQL_DATABASE: pocdb
+      MYSQL_USER: poc
+      MYSQL_PASSWORD: poc3306
+    ports:
+      - "3306:3306"
