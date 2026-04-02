@@ -2,9 +2,9 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:16
     volumes:
-      - ./data/db/pg_data:/var/lib/postgresql/data
+      - ./data/db/pg:/var/lib/postgresql/data
     container_name: postgres_poc_tfg
     environment:
       POSTGRES_USER: poc
@@ -16,7 +16,7 @@ services:
   mysql:
     image: mysql:8
     container_name: mysql_poc_tfg
-     volumes:
+    volumes:
       - ./data/db/mysql:/var/lib/mysql  
     environment:
       MYSQL_ROOT_PASSWORD: pocroot
