@@ -1,5 +1,5 @@
 import pandas as pd
-from sqlalchemy.types import Integer, String, Float
+from sqlalchemy.types import Integer, String, Float, Numeric
 
 # Configuración de conexiones
 from titanic_utils import mysql_engine, postgres_engine
@@ -19,7 +19,7 @@ dtype_mapping = {
     'SibSp': Integer(),
     'Parch': Integer(),
     'Ticket': String(50),
-    'Fare': Float(),
+    'Fare': Numeric(10,3),
     'Cabin': String(50),
     'Embarked': String(5)
 }
