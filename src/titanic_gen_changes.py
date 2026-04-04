@@ -49,7 +49,7 @@ df = pd.read_csv(dataset_input)
 initial_rows = len(df)
 
 # -------------------
-# DELETE filas
+# DELETE 
 # -------------------
 
 delete_count = int(len(df) * DELETE_RATE)
@@ -57,7 +57,7 @@ delete_idx = random.sample(list(df.index), delete_count)
 df = df.drop(delete_idx)
 
 # -------------------
-# UPDATE filas
+# UPDATE 
 # -------------------
 
 update_count = int(len(df) * UPDATE_RATE)
@@ -68,7 +68,7 @@ for i in update_idx:
     df.at[i, col] = mutate_value(df.at[i, col])
 
 # -------------------
-# INSERT filas nuevas
+# INSERT 
 # -------------------
 
 insert_count = int(len(df) * INSERT_RATE)
@@ -81,8 +81,8 @@ for _ in range(insert_count):
 
 df.to_csv(dataset_output, index=False)
 
-print("Filas originales:", initial_rows)
-print("Filas finales:", len(df))
+print("Filas iniciales:", initial_rows)
+print("Inserts:", insert_count)
 print("Deletes:", delete_count)
 print("Updates:", update_count)
-print("Inserts:", insert_count)
+print("Filas finales:", len(df))
