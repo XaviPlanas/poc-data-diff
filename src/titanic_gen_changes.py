@@ -75,7 +75,8 @@ insert_count = int(len(df) * INSERT_RATE)
 
 for _ in range(insert_count):
     new_row = df.sample(1).iloc[0].copy()
-    new_row[df.columns[0]] = str(uuid.uuid4())[:8]  # nuevo id
+    #new_row[df.columns[0]] = str(uuid.uuid4())[:8]  # nuevo id
+    new_row[df.columns[0]] = df[df.columns[0]].max() + 1
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
 df.to_csv(dataset_output, index=False)
