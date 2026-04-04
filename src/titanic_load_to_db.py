@@ -1,12 +1,14 @@
 import pandas as pd
 from sqlalchemy.types import Integer, String, Float, Numeric
 
-# Configuración de conexiones
-from titanic_utils import mysql_engine, postgres_engine
+from titanic_utils import mysql_engine, postgres_engine, dataset
 
 # Leer dataset Titanic
-df = pd.read_csv("data/raw/titanic.csv")
-df_modified = pd.read_csv("data/modified/titanic_modified.csv")
+df = pd.read_csv(dataset["raw"]["file"])
+src_table = dataset["raw"]["table"]
+
+df_modified = pd.read_csv(dataset["modified"]["file"])
+dst_table = dataset["modified"]["table"]
 
 # Mapear tipos de columna para SQL
 dtype_mapping = {
@@ -33,9 +35,9 @@ def load_to_db(df, table_name, engine, dtype_mapping):
         print(f"Error cargando {table_name} en {engine.url.database}: {e}")
 
 # Cargar en MySQL
-load_to_db(df, "titanic", mysql_engine, dtype_mapping)
-load_to_db(df, "titanic_modified", mysql_engine, dtype_mapping)
+load_to_db(df, src_table, mysql_engine, dtype_mapping)
+load_to_db(df, dst_table, mysql_engine, dtype_mapping)
 
 # Cargar en PostgreSQL
-load_to_db(df, "titanic", postgres_engine, dtype_mapping)
-load_to_db(df, "titanic_modified", postgres_engine, dtype_mapping)
+load_to_db(df, src_table, postgres_engine, dtype_mapping)
+load_to_db(df, dst_table, postgres_engine, dtype_mapping)

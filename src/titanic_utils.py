@@ -1,5 +1,13 @@
 from sqlalchemy import create_engine
 
+dataset = {'raw' : {
+                'file' : 'data/raw/titanic.csv',
+                'table': 'titanic' } ,
+            'modified' : {
+                'file' : 'data/modified/titanic_modified.csv',
+                'table': 'titanic_modified'
+            }
+        }
 # ---------------------------
 # Configuración MySQL (hardcodeada)
 # ---------------------------

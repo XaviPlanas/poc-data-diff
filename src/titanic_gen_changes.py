@@ -42,8 +42,8 @@ def mutate_value(v):
 
     return v
 
-dataset_input = dataset["raw"]
-dataset_output = dataset["modified"]
+dataset_input = dataset["raw"]["file"]
+dataset_output = dataset["modified"]["file"]
 
 df = pd.read_csv(dataset_input)
 initial_rows = len(df)
