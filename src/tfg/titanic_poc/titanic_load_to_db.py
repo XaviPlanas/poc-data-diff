@@ -4,7 +4,7 @@ from sqlalchemy.types import Integer, String, Float, Numeric
 from sqlalchemy import create_engine, Table, Column, MetaData
 from sqlalchemy import Integer, Float, String, Numeric
 
-from titanic_utils import mysql_engine, postgres_engine, dataset
+from tfg.titanic_poc.titanic_utils import mysql_engine, postgres_engine, dataset
 
 load_method = 'pandas' # pandas | orm 
 

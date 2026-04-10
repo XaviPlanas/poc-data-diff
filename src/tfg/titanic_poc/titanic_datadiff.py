@@ -1,11 +1,9 @@
-from datadiff_classifier import classifier
-from titanic_utils import mysql_engine, mysql_engine_url, postgres_engine_url, dataset 
+from tfg.titanic_poc.titanic_utils import mysql_engine, mysql_engine_url, postgres_engine_url, dataset 
 from data_diff import connect_to_table, diff_tables, disable_tracking
 from sqlalchemy import inspect
 
 from tfg.datadiff_classifier.classifier import DiffClassifier
 from tfg.datadiff_classifier.models import DiffRow
-
 
 
 disable_tracking()
@@ -58,3 +56,7 @@ for diff in diff_tables(table_mysql, table_pg):
 print("Cambios detectados en total:", total)
 print("Insertados:", added)
 print("Eliminados:", removed)
+
+filas_a_comparar = DiffRow(primary_key, left, right, "mysql", "postgresql")
+clasificador_diff = DiffClassifier("diff 1")
+clasificador_diff.classify(filas_a_comparar)
