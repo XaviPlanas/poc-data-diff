@@ -5,4 +5,4 @@ __pycache__/
 data/raw/
 data/modified/
 data/db/
-.vscode
+.vscode/

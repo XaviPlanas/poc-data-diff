@@ -1,11 +1,12 @@
 {
  "version": "0.2.0",
  "configurations": [
+
   {
    "name": "Run comparison",
    "type": "python",
    "request": "launch",
-   "program": "${workspaceFolder}/src/compare_datasets.py",
+   "program": "${workspaceFolder}/src/titanic_datadiff.py",
    "console": "integratedTerminal"
   }
  ]

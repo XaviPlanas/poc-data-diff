@@ -6,7 +6,7 @@ from sqlalchemy import Integer, Float, String, Numeric
 
 from titanic_utils import mysql_engine, postgres_engine, dataset
 
-load_method = 'orm' # pandas | orm 
+load_method = 'pandas' # pandas | orm 
 
 #Detectamos automáticamente las definiciones de df de Pandas
 def orm_autotype(series):
