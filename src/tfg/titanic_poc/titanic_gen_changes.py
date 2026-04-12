@@ -2,7 +2,7 @@ import pandas as pd
 import random
 import uuid
 from datetime import timedelta
-from tfg.titanic_poc.titanic_utils import dataset
+from .titanic_utils import dataset
 
 ### Constantes 
 random.seed(27) # para que sea reproducible emtre ejecuciones
