@@ -5,11 +5,11 @@ class Config:
     # Dataset
     DATASET = {
         'raw': {
-            'file': 'data/raw/titanic.csv',
+            'file': '../data/raw/titanic.csv', # desde  ./src
             'table': 'titanic'
         },
         'modified': {
-            'file': 'data/modified/titanic_modified.csv',
+            'file': '../data/modified/titanic_modified.csv',
             'table': 'titanic_modified'
         }
     }
@@ -33,6 +33,7 @@ class Config:
         "dialect" : "postgresql",
         "driver" : "psycopg2"
     }
+
     def __init__(self):
         disable_tracking()
 
