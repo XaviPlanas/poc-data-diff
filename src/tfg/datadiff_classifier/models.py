@@ -2,11 +2,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-# class IAModel(Enum):
-#     ANTHROPIC   = "claude-opus-4-5"
-#     OLLAMA      = "gemma3"
-#     QWEN        = "QWEN"
-
 class DiffCategory(Enum):
     REAL                    = "REAL"
     FALSO_POSITIVO_TIPO     = "FALSO_POSITIVO_TIPO"
