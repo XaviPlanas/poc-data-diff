@@ -1,8 +1,9 @@
 import pandas as pd
 import random
+import string
 import uuid
 from datetime import timedelta
-from .titanic_utils import dataset
+from .titanic_utils import DATASET
 
 ### Constantes 
 random.seed(27) # para que sea reproducible emtre ejecuciones
@@ -12,7 +13,18 @@ UPDATE_RATE = 0.05
 DELETE_RATE = 0.03
 INSERT_RATE = 0.04
 
+STRING_MUTATION_RATE = 0.1
 ### Funciones
+
+def mutate_string(s, mutation_rate= STRING_MUTATION_RATE):
+    result = []
+    for c in s:
+        if random.random() < mutation_rate:
+            result.append(random.choice(string.ascii_letters))
+        else:
+            result.append(c)
+    return ''.join(result)
+
 def mutate_value(v):
     """Modifica un valor respetando su tipo."""
     #TODO: incluir funciones normalización?
@@ -22,7 +34,7 @@ def mutate_value(v):
 
     # strings
     if isinstance(v, str):
-        return v + "_mod"
+        return mutate_string(v)
 
     # enteros
     if isinstance(v, int):
