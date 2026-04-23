@@ -26,5 +26,6 @@
             "username": "poc",
             "password": "poc5432"
         }
-    ]
+    ],
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }
