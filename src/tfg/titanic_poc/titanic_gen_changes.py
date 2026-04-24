@@ -3,7 +3,7 @@ import random
 import string
 import uuid
 from datetime import timedelta
-from .titanic_utils import DATASET
+from .titanic_utils import Config
 
 ### Constantes 
 random.seed(27) # para que sea reproducible emtre ejecuciones
@@ -54,8 +54,8 @@ def mutate_value(v):
 
     return v
 
-dataset_input = dataset["raw"]["file"]
-dataset_output = dataset["modified"]["file"]
+dataset_input = Config.DATASET["raw"]["file"]
+dataset_output = Config.DATASET["modified"]["file"]
 
 df = pd.read_csv(dataset_input)
 initial_rows = len(df)
