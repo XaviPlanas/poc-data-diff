@@ -86,7 +86,8 @@ class DiffClassifier:
             ))
         return diffrows
                   
-    def classify(self, row: DiffRow, prompt = None) -> DiffClassification :
+    def __IAsearch(self, row: DiffRow, prompt = None) -> str:
+        """ Función auxiliar para llamar a la API del LLM con un prompt dado y devolver la respuesta JSON. """
         
         prompt = prompt or self.prompt_template.format(
             source_a=row.source_a,
@@ -96,60 +97,74 @@ class DiffClassifier:
             row_b=json.dumps(row.row_b, ensure_ascii=False),
         )
 
-        try:   # Llamamos a la API del LLM y procesamos la respuesta en variable data
-            if self.llm_provider == 'anthropic':
-                response = self.client.messages.create(
+        if self.llm_provider == 'anthropic':
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                temperature=self.temperature,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            raw = response.content[0].text.strip()
+        elif self.llm_provider == 'ollama':
+            if self.ollama_use_chat:
+                response = self.client.chat(
                     model=self.model,
-                    max_tokens=1024,
-                    temperature=self.temperature,
+                    options={"temperature": self.temperature},
                     messages=[
-                        {"role": "user", "content": prompt}
-                    ]
+                        {
+                            "role": "system",
+                            "content": SYSTEM_PROMPT,
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
                 )
-                raw = response.content[0].text.strip()
-            elif self.llm_provider == 'ollama':
-                if self.ollama_use_chat:
-                    response = self.client.chat(
-                        model=self.model,
-                        options={"temperature": self.temperature},
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": SYSTEM_PROMPT,
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt,
-                            },
-                        ],
-                    )
-                    raw = response["message"]["content"].strip()
-                else:
-                    response = self.client.generate(
-                        model=self.model,             
-                        prompt=prompt,
-                        options={"temperature": self.temperature},
-                        format="json"
-                    )
-                    raw = response["response"].strip()
+                raw = response["message"]["content"].strip()
             else:
-                raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
-    
-            print(f"Raw response from {self.model}:\n{raw}\n")
-            
-            match = re.search(r"\{.*\}", raw, re.DOTALL) #raw vienen como markdown JSON
-            data = json.loads(match.group())
+                response = self.client.generate(
+                    model=self.model,             
+                    prompt=prompt,
+                    options={"temperature": self.temperature},
+                    format="json"
+                )
+                raw = response["response"].strip()
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
+
+        print(f"Raw response from {self.model}:\n{raw}\n")
+        
+        match = re.search(r"\{.*\}", raw, re.DOTALL) #raw vienen como markdown JSON
+        data = json.loads(match.group())
+        return data
+          
+    def IAclassify(self, row: DiffRow, prompt = None) -> DiffClassification :
+        
+        #Obtenmos la clasificación del LLM en formato JSON
+        data = self.__IAsearch(row, prompt)
+        #print(f"Data parsed from LLM response:\n{data}\n")
+        try:
+            # Mapear strings a enums 
+            try:
+                categoria_str = data.get("category", "UNCERTAIN")
+                print(f"Categoria: {categoria_str}")
+                categoria = DiffCategory(categoria_str)
+            except ValueError:
+                categoria = DiffCategory.ERROR
             
             # Construimos el DiffClassification resultante  
             # a partir del JSON devuelto por el LLM
             result = DiffClassification(
                 key=row.key,
-                accion = DiffAction(data.get("accion", DiffAction.UPDATE.value)),
-                categoria=data.get("categoria", DiffCategory.UNCERTAIN.value),
-                confianza=float(data.get("confianza", 0.0)),
-                columnas_afectadas=data.get("columnas_afectadas", []),
-                explicacion=data.get("explicacion", ""),
-                normalizacion_sugerida=data.get("normalizacion_sugerida"),
+                accion= DiffAction.UPDATE,
+                categoria=categoria,
+                confianza=float(data.get("confidence_of_category", 0.0)),
+                columnas_afectadas=data.get("affected_columns", []),
+                explicacion=data.get("explanation", ""),
+                normalizacion_sugerida=data.get("normalization_suggested"),
                 row_a=row.row_a,
                 row_b=row.row_b
             )
@@ -188,7 +203,7 @@ class DiffClassifier:
             return DiffClassification(
                 key=row.key,
                 accion=accion,
-                categoria= DiffCategory.SEMANTICALLY_EQUIVALENT,
+                categoria= DiffCategory.SEMANTICALLY_DIFFERENT,
                 confianza=1,
                 columnas_afectadas=['*'],
                 explicacion=f"{accion} del Identificador {row.key}",
@@ -245,7 +260,7 @@ class DiffClassifier:
 
         return eventos
 
-    def classify_all(self, diff_row: DiffRow) -> DiffClassification:
+    def classify_all(self, diff_row: DiffRow) -> list[DiffClassification]:
         
         prompt = self.prompt_template.format(
             source_a        = diff_row.source_a,
@@ -269,7 +284,7 @@ class DiffClassifier:
             print(response["response"])
             print("Total (ms):", response['total_duration']/1e6)
             print("Prompt eval (ms):", response['prompt_eval_duration']/1e6)
-            print("Generation (ms):", response['eval_duration']/1e6)
+            print("Generation (ms):", response['eval_∫∫duration']/1e6)
 
         elif self.llm_provider == 'ollama' and self.ollama_use_chat:
             response = self.client.chat(
@@ -308,8 +323,8 @@ class DiffClassifier:
         ).strip()
 
         clasificacion = self.__normalizador(row) # Filtra UPD 
-        if clasificacion is None:
-            clasificacion = self.classify(prompt=prompt_text, row=row)
+        if clasificacion is None: # pasamos a la IA los casos no resueltos por el normalizador 
+            clasificacion = self.IAclassify(prompt=prompt_text, row=row)
         else : 
             if clasificacion.columnas_afectadas != ['*'] :  # INS o DEL 
                 #print(f"Key: {row.key}. Row: {row}")
