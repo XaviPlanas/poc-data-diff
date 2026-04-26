@@ -213,6 +213,39 @@ class DiffClassifier:
             )
         return None
     
+    def show_statistics(self, classifications: list[DiffClassification]) :
+        """ Función auxiliar para obtener estadísticas de las clasificaciones. """
+        stats = {
+            DiffCategory.SEMANTICALLY_EQUIVALENT: 0,
+            DiffCategory.SEMANTICALLY_DIFFERENT: 0,
+            DiffCategory.UNCERTAIN: 0,
+            DiffCategory.ERROR: 0,
+            Total : 0
+        }
+        for c in classifications:
+            stats[c.categoria] += 1
+            stats['Total'] += 1
+        
+        print (f"Total diferencias clasificadas: {stats['Total']}")
+        print (f"Diferencias clasificadas como SEMANTICALLY_DIFFERENT: {stats[DiffCategory.SEMANTICALLY_DIFFERENT]}") 
+        print (f"Diferencias clasificadas como SEMANTICALLY_EQUIVALENT: {stats[DiffCategory.SEMANTICALLY_EQUIVALENT]}")
+        print (f"Diferencias clasificadas como UNCERTAIN: {stats[DiffCategory.UNCERTAIN]}")      
+        print (f"Diferencias clasificadas como ERROR: {stats[DiffCategory.ERROR]}")      
+
+
+    def diff_to_json(diff: DiffClassification) -> str:
+        return json.dumps({
+            "key": diff.key,
+            "accion": diff.accion.value if diff.accion else None,
+            "categoria": diff.categoria.value if diff.categoria else None,
+            "confianza": diff.confianza,
+            "columnas_afectadas": diff.columnas_afectadas,
+            "explicacion": diff.explicacion,
+            "normalizacion_sugerida": diff.normalizacion_sugerida,
+            "row_a": diff.row_a,
+            "row_b": diff.row_b
+        }, ensure_ascii=False, indent=2)
+    
     def diffdata_to_events(diff: DiffRow) -> list[DiffEvent]:
         """ Del modelo basado en entidades a atributos:
          - DiffData representa una diferencia a nivel de fila, con toda la información de ambas filas.
@@ -323,15 +356,10 @@ class DiffClassifier:
         ).strip()
 
         clasificacion = self.__normalizador(row) # Filtra UPD 
+        
         if clasificacion is None: # pasamos a la IA los casos no resueltos por el normalizador 
             clasificacion = self.IAclassify(prompt=prompt_text, row=row)
-        else : 
-            if clasificacion.columnas_afectadas != ['*'] :  # INS o DEL 
-                #print(f"Key: {row.key}. Row: {row}")
-                print(f"Key: {row.key}.")
-                if clasificacion.accion == DiffAction.INSERT :
-                    print(f"Clasificacion : {clasificacion}\n")
-        
+           
         return clasificacion
 
     def classify_row_by_row ( self, diffrows: list[DiffRow] ) -> list[DiffClassification] :
