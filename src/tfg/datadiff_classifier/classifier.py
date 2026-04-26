@@ -16,27 +16,32 @@ from tfg.titanic_poc.titanic_utils import Config
 
 class DiffClassifier:
 
-    __CHAT = False
-    __ANTHROPIC = True
-     #__MODEL = 'claude-sonnet-4-5'
-    __MODEL = 'claude-haiku-4-5'
-    #__MODEL = 'phi3'
-    #__MODEL = 'llama3:8b'
-    #__MODEL = 'qwen2.5:7b-instruct'
-    __TEMPERATURE = 0
-    __PROMPT = CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
-    __SCHEMA = SCHEMA_CONTEXT_JSON
-    __LLM_UMBRAL_INCERTIDUMBRE=0.7
-    #__FORMAT = JSON_CONSTRAINED_OUTPUT
-    
-    def __init__(self, schema_context: str = None):
+    def __init__(self, 
+                 schema_context: str = None, 
+                 llm_provider: str = 'anthropic', 
+                 model: str = 'claude-haiku-4-5', 
+                 temperature: float = 0.0, 
+                 api_key: str = None,
+                 prompt_template: str = None,
+                 uncertainty_threshold: float = 0.7,
+                 ollama_use_chat: bool = False):
         
-        self.schema_context = schema_context or self.__class__.__SCHEMA
-
-        # self.client = client = Client(host='http://127.0.0.1:11434')
-        #     #host='https://ollama.com',
-        #     #headers={'Authorization': 'Bearer ' +  os.environ.get('OLLAMA_API_KEY')} ) 
-        self.client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))  
+        self.schema_context = schema_context or SCHEMA_CONTEXT_JSON
+        self.llm_provider = llm_provider
+        self.model = model
+        self.temperature = temperature
+        self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
+        self.prompt_template = prompt_template or CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
+        self.uncertainty_threshold = uncertainty_threshold
+        self.ollama_use_chat = ollama_use_chat
+        
+        # Initialize client based on provider
+        if self.llm_provider == 'anthropic':
+            self.client = anthropic.Anthropic(api_key=self.api_key)
+        elif self.llm_provider == 'ollama':
+            self.client = Client(host='http://127.0.0.1:11434')
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")  
     
     def parse_diff_results(self, metadata: SegmentStructure, diffs: Iterator[dict]) -> list[DiffRow]    :
         """ Convierte la salida de data-diff en una lista de DiffRow, que es el formato de entrada esperado por el clasificador.
@@ -83,7 +88,7 @@ class DiffClassifier:
                   
     def classify(self, row: DiffRow, prompt = None) -> DiffClassification :
         
-        prompt = prompt or self.__PROMPT.format(
+        prompt = prompt or self.prompt_template.format(
             source_a=row.source_a,
             source_b=row.source_b,
             schema_context=self.schema_context,
@@ -92,43 +97,45 @@ class DiffClassifier:
         )
 
         try:   # Llamamos a la API del LLM y procesamos la respuesta en variable data
-            if  self.__CHAT :     
-                response = self.client.chat(
-                model   = self.__MODEL,
-                options = {"temperature": self.__TEMPERATURE},
-                messages = [
-                        {
-                            "role":    "system",
-                            "content": SYSTEM_PROMPT,
-                        },
-                        {
-                            "role":    "user",
-                            "content": self.__PROMPT,
-                        },
-                    ],
-                )
-                raw = response["message"]["content"].strip()
-            elif self.__ANTHROPIC :
+            if self.llm_provider == 'anthropic':
                 response = self.client.messages.create(
-                    model=self.__MODEL,
+                    model=self.model,
                     max_tokens=1024,
-                    temperature=0.7,
+                    temperature=self.temperature,
                     messages=[
-                    {"role": "user", "content": prompt}
-                        ]
-                    )
-    
-                raw = response.content[0].text.strip() 
-            else : 
-                response = self.client.generate(
-                    model=self.__MODEL,             
-                    prompt= prompt,
-                    options={"temperature": self.__TEMPERATURE},
-                    format="json"
+                        {"role": "user", "content": prompt}
+                    ]
                 )
-                raw = response["response"].strip()          
+                raw = response.content[0].text.strip()
+            elif self.llm_provider == 'ollama':
+                if self.ollama_use_chat:
+                    response = self.client.chat(
+                        model=self.model,
+                        options={"temperature": self.temperature},
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": SYSTEM_PROMPT,
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt,
+                            },
+                        ],
+                    )
+                    raw = response["message"]["content"].strip()
+                else:
+                    response = self.client.generate(
+                        model=self.model,             
+                        prompt=prompt,
+                        options={"temperature": self.temperature},
+                        format="json"
+                    )
+                    raw = response["response"].strip()
+            else:
+                raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
     
-            print(f"Raw response from {self.__MODEL}:\n{raw}\n")
+            print(f"Raw response from {self.model}:\n{raw}\n")
             
             match = re.search(r"\{.*\}", raw, re.DOTALL) #raw vienen como markdown JSON
             data = json.loads(match.group())
@@ -148,7 +155,7 @@ class DiffClassifier:
             )
 
             # Aplicar umbral de incertidumbre
-            if result.confianza < self.__LLM_UMBRAL_INCERTIDUMBRE:
+            if result.confianza < self.uncertainty_threshold:
                 result.categoria = DiffCategory.UNCERTAIN
             
             return result
@@ -240,7 +247,7 @@ class DiffClassifier:
 
     def classify_all(self, diff_row: DiffRow) -> DiffClassification:
         
-        prompt = self.__PROMPT.format(
+        prompt = self.prompt_template.format(
             source_a        = diff_row.source_a,
             source_b        = diff_row.source_b,
             #schema_context  = self.schema_context,
@@ -249,16 +256,12 @@ class DiffClassifier:
         )
         print(f"Utilizando el PROMPT: {prompt}")
         
-        if not self.__CHAT : 
+        if self.llm_provider == 'ollama' and not self.ollama_use_chat:
             response = self.client.generate(
-                model= self.__MODEL,
-                prompt= self.__PROMPT,
+                model= self.model,
+                prompt= prompt,
                 options={
-                #    "num_ctx": 8192,
-                    "temperature": self.__TEMPERATURE,
-                #     "top_p": 0.8,
-                #     "top_k": 40,
-                #     "num_predict": 100
+                    "temperature": self.temperature,
                 },
                 format = "json"
             )
@@ -267,12 +270,11 @@ class DiffClassifier:
             print("Total (ms):", response['total_duration']/1e6)
             print("Prompt eval (ms):", response['prompt_eval_duration']/1e6)
             print("Generation (ms):", response['eval_duration']/1e6)
-            #print(json.dumps(response.model_dump(), indent=2))
 
-        else :
+        elif self.llm_provider == 'ollama' and self.ollama_use_chat:
             response = self.client.chat(
-                model   = self.__MODEL,
-                options = {"temperature": self.__TEMPERATURE},
+                model   = self.model,
+                options = {"temperature": self.temperature},
                 messages = [
                     {
                         "role":    "system",
@@ -280,16 +282,25 @@ class DiffClassifier:
                     },
                     {
                         "role":    "user",
-                        "content": self.__PROMPT,
+                        "content": prompt,
                     },
                 ],
-                #format = self.__FORMAT
             )
             print(response["message"]["content"])
+        elif self.llm_provider == 'anthropic':
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            print(response.content[0].text.strip())
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
 
     def classify_one_row(self, row: DiffRow):
 
-        prompt_text = self.__PROMPT.format(
+        prompt_text = self.prompt_template.format(
             source_a=row.source_a,
             source_b=row.source_b,
             row_a=row.row_a or '{"__missing__": true}',
