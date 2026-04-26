@@ -81,7 +81,7 @@ class DiffClassifier:
             ))
         return diffrows
                   
-    def __classify(self, row: DiffRow, prompt = None) -> DiffClassification :
+    def classify(self, row: DiffRow, prompt = None) -> DiffClassification :
         
         prompt = prompt or self.__PROMPT.format(
             source_a=row.source_a,
@@ -298,7 +298,7 @@ class DiffClassifier:
 
         clasificacion = self.__normalizador(row) # Filtra UPD 
         if clasificacion is None:
-            clasificacion = self.__classify(prompt=prompt_text, row=row)
+            clasificacion = self.classify(prompt=prompt_text, row=row)
         else : 
             if clasificacion.columnas_afectadas != ['*'] :  # INS o DEL 
                 #print(f"Key: {row.key}. Row: {row}")
