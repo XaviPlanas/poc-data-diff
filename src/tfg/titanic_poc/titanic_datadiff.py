@@ -1,3 +1,11 @@
+###################################
+# Escenario: 
+#   Seguimos pipeline de comparación 
+#   pivotando sobre DiffClassifier
+#   y usando la API data-diff como 
+#   herramienta de comparación.
+###################################
+
 from .titanic_utils import Config
 from data_diff import connect_to_table, diff_tables
 from sqlalchemy import inspect 
@@ -53,9 +61,12 @@ diffrows = clasificador.parse_diff_results(diffs=diff_results, metadata=metadata
 clasificaciones = []
 clasificaciones = clasificador.classify_row_by_row(diffrows,15)
 
-clasificador.show_statistics(clasificaciones)
+###################################
+# Reportamos las diferencias
+###################################
+
+clasificador.report_statistics(clasificaciones)
 
 print("\nEjemplos de 10 clasificaciones:\n") 
 for c in clasificaciones[:10] :
     print(c.to_json())
-

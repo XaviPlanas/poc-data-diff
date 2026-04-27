@@ -679,7 +679,7 @@ OUTPUT:
 }}
 """.strip()
 
-PROMPT_PHI3 =  """
+PROMPT_PHI3 =  """∫
 Eres un experto analista de calidad de datos y comparaciones semánticas entre bases de datos. Trabajas para un equipo de ingeniería que replica datasets entre MySQL y PostgreSQL. Un sistema de comparación literal ha detectado diferencias y tú debes clasificar si esas diferencias son semánticamente significativas o son falsos positivos.
 
 Reglas estrictas:
@@ -726,111 +726,51 @@ Rows : {row}
 
 CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF = """
 
-You are a senior data quality engineer specialized in semantic data comparison.
+You are a senior data quality engineer specialized in semantic reconciliation between heterogeneous sources.
 
-<<DATA_STRUCTURE>>
+### Task
 
-You will receive two records:
-- DATASET_A (source: {source_a})
-- DATASET_B (source: {source_b})
+Given two records that represent the **same entity** (same primary key) from two different sources, determine if they are semantically equivalent.
 
-Both records:
-- Share the same schema
-- Represent the same entity (same primary key)
-- The primary key is the first key of the dictionary
+### Input
 
-----------------------------------------
-SEMANTIC TASK
-----------------------------------------
+- Source A ({source_a}): {row_a}
+- Source B ({source_b}): {row_b}
+- Permissiveness: 0.1 # float between 0.0 and 1.0
 
-Determine whether the two records are semantically equivalent.
+### Definitions
 
-Definitions:
+- **SEMANTICALLY_EQUIVALENT**: The differences do not change the real-world meaning or ontology of the entity.
+- **SEMANTICALLY_DIFFERENT**: The differences alter the meaning or ontology of the entity in a substantive way.
+- **UNCERTAIN**: Not enough information or the case is ambiguous.
 
-- SEMANTICALLY_EQUIVALENT:
-  Differences do NOT change the meaning of the entity
+### Permissiveness Factor (0.0 → 1.0)
 
-- SEMANTICALLY_DIFFERENT:
-  Differences DO change the meaning of the entity
+- **0.0 (STRICT)**: Any detectable difference is considered semantically relevant → tend toward DIFFERENT.
+- **0.5 (MODERATE)**: Ignore small formatting and minor numeric differences.
+- **1.0 (LENIENT)**: Accept differences as long as they do not substantially change the ontology/meaning of the entity.
 
-- UNCERTAIN:
-  Not enough information or ambiguous case
+Higher permissiveness = more tolerant to variations (formatting, small numeric deviations, equivalent representations).
+Lower permissiveness = more strict, even small differences matter.
+ 
+### Evaluation Rules
+1. Evaluate the record **as a whole** (entity-level semantics), not just field by field.
+2. Ignore pure formatting differences (case, whitespace, punctuation, encoding).
+3. Apply reasonable tolerance for numeric values.
+4. Focus exclusively on whether the **real-world meaning** changes.
+5. Do NOT infer external business rules or domain knowledge beyond the data.
+6. When in doubt → output UNCERTAIN (be conservative with "DIFFERENT").
 
-----------------------------------------
-PERMISSIVENESS FACTOR
-----------------------------------------
+### Output Format (STRICT)
+Return **ONLY** valid JSON. One object per entity:
 
-You are given a parameter:
-
-permissiveness ∈ [0,1]
-
-Interpretation:
-
-- 0.0 → STRICT
-  Any detectable difference is likely SEMANTICALLY_DIFFERENT
-
-- 0.5 → MODERATE
-  Ignore minor numeric or formatting differences
-
-- 1.0 → LENIENT
-  Accept differences unless they clearly change the ontology of the entity
-
-Guidelines:
-
-- Higher permissiveness → tolerate:
-  - small numeric deviations
-  - formatting differences
-  - equivalent textual variations
-
-- Lower permissiveness → treat even small deviations as meaningful
-
-----------------------------------------
-EVALUATION RULES
-----------------------------------------
-
-1. Compare ALL fields jointly (entity-level, not isolated fields)
-2. Ignore pure formatting differences (case, spacing, encoding)
-3. Use tolerance for numeric values (implicit or inferred)
-4. Focus on whether the REAL-WORLD meaning changes
-5. Do NOT assume external business logic
-6. If unsure → UNCERTAIN
-
-----------------------------------------
-OUTPUT FORMAT (STRICT)
-----------------------------------------
-
-Return ONLY valid JSON.
-
-One JSON per entity:
-
-{
-  "id": "<primary_key>",
-  "category": "SEMANTICALLY_EQUIVALENT | SEMANTICALLY_DIFFERENT | UNCERTAIN",
-  "confidence_of_category": 0.0,
-  "affected_columns": ["col1", "col2"],
-  "explanation": "short and precise reasoning",
-  "normalization_suggested": "SQL statement or null"
-}
-
-----------------------------------------
-CONSTRAINTS
-----------------------------------------
-
-- No text outside JSON
-- Be consistent with the permissiveness parameter
-- Be conservative before labeling as SEMANTICALLY_DIFFERENT
-- Prefer UNCERTAIN over incorrect classification
-
-----------------------------------------
-INPUT
-----------------------------------------
-
-permissiveness: 1
-
-DATASET_A:
-{dataset_a}
-
-DATASET_B:
-{dataset_b}
-
+```json
+{{
+"id": "<primary_key_value>",
+"category": "SEMANTICALLY_EQUIVALENT | SEMANTICALLY_DIFFERENT | UNCERTAIN",
+"confidence_of_category": 0.0..1.0,
+"affected_columns": ["column1", "column2"],
+"explanation": "Brief and precise reasoning focusing on the semantic impact",
+"normalization_suggested": "SQL expression or null"
+}}
 """

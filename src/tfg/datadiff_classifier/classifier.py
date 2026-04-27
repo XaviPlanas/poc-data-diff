@@ -213,7 +213,7 @@ class DiffClassifier:
             )
         return None
     
-    def show_statistics(self, classifications: list[DiffClassification]) :
+    def report_statistics(self, classifications: list[DiffClassification]) :
         """ Función auxiliar para obtener estadísticas de las clasificaciones. """
         stats = {
             DiffCategory.SEMANTICALLY_EQUIVALENT: 0,
@@ -233,19 +233,6 @@ class DiffClassifier:
         print (f"Diferencias clasificadas como ERROR: {stats[DiffCategory.ERROR]}")      
 
 
-    def diff_to_json(diff: DiffClassification) -> str:
-        return json.dumps({
-            "key": diff.key,
-            "accion": diff.accion.value if diff.accion else None,
-            "categoria": diff.categoria.value if diff.categoria else None,
-            "confianza": diff.confianza,
-            "columnas_afectadas": diff.columnas_afectadas,
-            "explicacion": diff.explicacion,
-            "normalizacion_sugerida": diff.normalizacion_sugerida,
-            "row_a": diff.row_a,
-            "row_b": diff.row_b
-        }, ensure_ascii=False, indent=2)
-    
     def diffdata_to_events(diff: DiffRow) -> list[DiffEvent]:
         """ Del modelo basado en entidades a atributos:
          - DiffData representa una diferencia a nivel de fila, con toda la información de ambas filas.

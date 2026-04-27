@@ -59,8 +59,6 @@ class DiffClassification:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
 
-
-
 @dataclass
 class SegmentStructure:
     """Estructura de un segmento de datos, que puede ser una tabla, un bloque de filas, o una fila individual."""

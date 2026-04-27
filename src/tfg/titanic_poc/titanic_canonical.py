@@ -1,12 +1,14 @@
-"""
-Pipeline completo de canonización y comparación.
-Ejecuta los cuatro pasos en secuencia:
+###################################
+# Escenario: 
+#   Pipeline completo de canonización y comparación.
+#   Ejecuta los cuatro pasos en secuencia:
+#       paso 1. Cargar configuración canónica
+#       paso 2. Construir y aplicar el plan de canonización en cada motor
+#       paso 3. Comparar con data-diff sobre las vistas canónicas
+#       paso 4. Clasificar las diferencias con el clasificador IA
+#       paso 5. Generar informe detallado de resultados
+###################################
 
-paso 1. Cargar configuración canónica
-paso 2. Construir y aplicar el plan de canonización en cada motor
-paso 3. Comparar con data-diff sobre las vistas canónicas
-paso 4. Clasificar las diferencias con el clasificador IA
-"""
 import json
 
 from data_diff import connect_to_table, diff_tables
@@ -21,6 +23,10 @@ from tfg.canonical_engine.config.loader import CanonicalConfigLoader
 
 from .titanic_utils import Config
 
+###################################
+# Globales y configuración
+###################################
+
 conf = Config()
 
 DEBUG = True
@@ -34,19 +40,25 @@ PG_URI_DDIFF = conf.getConnectionString(Config.POSTGRES, datadiff = True)
 
 CFG_FILE  = "tfg/titanic_poc/titanic_canonical.yaml" # ejecutando desde tfg/src
 
-def paso1_load_config():
+###################################
+# Métodos con los pasos del pipeline
+###################################
+
+def __header_print(title):
     print(f"\n{SEPARATOR}")
-    print("PASO 1 — Cargar configuración canónica")
-    print(SEPARATOR)
+    print(f"  {title}")
+    print(f"{SEPARATOR}\n")
+
+def paso1_load_config():
+    __header_print("PASO 1 — Cargar configuración canónica")
 
     loaded = CanonicalConfigLoader.from_file(CFG_FILE)
     print(loaded.report())
     return loaded
 
 def paso2_build_and_apply_plans(loaded):
-    print(f"\n{SEPARATOR}")
-    print("PASO 2 — Construir y aplicar planes de canonización")
-    print(SEPARATOR)
+
+    __header_print("PASO 2 — Construir y aplicar planes de canonización")
 
     # ── MySQL ──────────────────────────────────────────────────────
     print("\n  MySQL:")
@@ -71,9 +83,7 @@ def paso2_build_and_apply_plans(loaded):
     return plan_mysql, plan_pg
 
 def paso3_compare_with_datadiff():
-    print(f"\n{SEPARATOR}")
-    print("PASO 3 — Comparación con data-diff sobre vistas canónicas")
-    print(SEPARATOR)
+    __header_print("PASO 3 — Comparación con data-diff sobre vistas canónicas")
 
     # Sin canonización (baseline: muestra el problema)
     print("\n  [Baseline] Sin canonización:")
@@ -83,7 +93,6 @@ def paso3_compare_with_datadiff():
     table2_raw = connect_to_table(
         PG_URI_DDIFF, "titanic", "PassengerId"
     )
-
     
     #TODO: Validación cruzada de cols ANTES de empezar con los esquemas
     #      def_validate_schema_match(table1.cols, table2.cols):
@@ -119,9 +128,7 @@ def paso3_compare_with_datadiff():
 
 
 def paso4_classify_differences(diffs_can):
-    print(f"\n{SEPARATOR}")
-    print("PASO 4 — Clasificación IA de diferencias restantes")
-    print(SEPARATOR)
+    __header_print("PASO 4 — Clasificación IA de diferencias restantes")
 
     if not diffs_can:
         print("\n  No hay diferencias que clasificar.")
