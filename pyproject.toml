@@ -1,0 +1,11 @@
+[project]
+name = "tfg"
+version = "0.1.0"
+description = "TFG - Data reconciliation with LLM"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

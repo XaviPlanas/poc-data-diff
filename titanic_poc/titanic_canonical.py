@@ -38,7 +38,7 @@ PG_URI    = conf.getConnectionString(Config.POSTGRES)
 MYSQL_URI_DDIFF = conf.getConnectionString(Config.MYSQL, datadiff = True)
 PG_URI_DDIFF = conf.getConnectionString(Config.POSTGRES, datadiff = True)
 
-CFG_FILE  = "tfg/titanic_poc/titanic_canonical.yaml" # ejecutando desde tfg/src
+CFG_FILE  = "titanic_poc/titanic_canonical.yaml" # ejecutando desde tfg/src
 
 ###################################
 # Métodos con los pasos del pipeline
