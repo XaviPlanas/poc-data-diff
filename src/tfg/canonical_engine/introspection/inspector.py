@@ -27,7 +27,7 @@ class SchemaInspector:
     
     @staticmethod
     def _normalize_column_name(name: str) -> str:
-        """Creamos una versión del nombre de columna normalizado"""
+        """Creamos una versión del nombre de columa"""
         logger.trace(f"Columna con valor {name} al entrar")
         # 1. quitar acentos
         name = unicodedata.normalize('NFKD', name)

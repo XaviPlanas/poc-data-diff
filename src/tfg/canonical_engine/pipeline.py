@@ -75,19 +75,20 @@ class CanonicalPipeline:
         canonical_types   = self.inspector.inspect_table(self.table)
         columns           = {}
         download_columns  = []
-
+        logger.debug(f"CanonicalPipeline.build_plan: canonical_types = {canonical_types}")
         for col_name, canonical_type in canonical_types.items():
             try:
                 sql_expr = canonical_type.to_sql(self.dialect)
-                logger.debug(f"Dialect : {self.dialect.name}")
-                if self.dialect.name == "mysql" : #mySQL no cumple con ANSI SQL
-                     column_name    = f"`{col_name}`" 
-                else : 
-                     column_name    = f"\"{col_name}\"" #ANSI SQL usa \"
+                # if self.dialect.name == "mysql" : #mySQL no cumple con ANSI SQL
+                #      column_name    = col_name.replace("\"","") 
+                # else : 
+                #      column_name    = col_name #ANSI SQL usa \"    
+                
+                logger.trace(f"Dialect : {self.dialect.name} Columna {col_name} , se normaliza a {col_name}.Se puede canonizar en SQL con expresión: {sql_expr}")
                 
                 columns[col_name] = CanonicalColumn(
-                    name              = column_name,
-                    sql_expression    = f"{sql_expr} AS {self.inspector._normalize_column_name(column_name)}",
+                    name              = col_name,
+                    sql_expression    = f"{sql_expr} AS {self.inspector._normalize_column_name(col_name)}",
                     python_fallback   = None,
                     requires_download = False,
                     information_loss  = canonical_type.information_loss,
@@ -97,9 +98,15 @@ class CanonicalPipeline:
                 # El motor no soporta esta transformación de forma nativa.
                 # Se marca para fallback Python y se documenta.
                 fallback_fn = self._resolve_fallback(e.transformation)
+                
+                if self.dialect.name == "mysql" : #mySQL no cumple con ANSI SQL
+                     column_name    = col_name.replace("\"","`") 
+                else : 
+                     column_name    = col_name #ANSI SQL usa \"  
+                     
                 columns[col_name] = CanonicalColumn(
-                    name              = col_name,
-                    sql_expression    = col_name,  # Sin transformar
+                    name              = column_name,
+                    sql_expression    = column_name,  # Sin transformar
                     python_fallback   = fallback_fn,
                     requires_download = True,
                     information_loss  = canonical_type.information_loss,
@@ -140,7 +147,7 @@ class CanonicalPipeline:
         y aplicando los fallbacks Python al resultado para
         las columnas que requieren descarga.
         """
-        view_name = f"{self.table}_canonical"
+        view_name = f"{self.table}_canonical" 
 
         with self.engine.connect() as conn:
            

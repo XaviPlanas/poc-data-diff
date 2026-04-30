@@ -3,17 +3,28 @@ from .base import BaseDialect, UnsupportedTransformation
 class MySQLDialect(BaseDialect):
 
     name = "mysql"
+    
+    @staticmethod
+    def _clean(col: str) -> str:
+        # Quita comillas externas si vienen ya citadas
+        #if col.startswith(("'", '"', "`")) and col.endswith(("'", '"', "`")):
+        if col.startswith('"') and col.endswith('"'):
+            col = col[1:-1]
+        return f"`{col}`"
 
     def round_numeric(self, col, precision, scale):
         # MySQL: DECIMAL en lugar de NUMERIC para comportamiento estándar
+        col = self._clean(col)
         return f"ROUND(CAST({col} AS DECIMAL({scale},{precision})), {precision})"
 
     def cast_integer(self, col):
+        col = self._clean(col)
         return f"CAST({col} AS SIGNED)"
 
     def ensure_encoding(self, col, encoding):
         # Conversión explícita de encoding, crítica en MySQL
         # donde el encoding puede variar por columna
+        col = self._clean(col)
         return f"CONVERT({col} USING {encoding})"
 
     def trim(self, expr):
@@ -75,6 +86,7 @@ class MySQLDialect(BaseDialect):
     # El CASE exterior cubre representaciones textuales
     # provenientes de imports CSV o de columnas VARCHAR
     # usadas como booleanos por convención.
+        col = self._clean(col)
         return (
             f"CASE "
             f"  WHEN LOWER({col}) IN ('true','yes','on','1','t') THEN 1 "
