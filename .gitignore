@@ -8,4 +8,5 @@ data/
 .vscode/
 src/tfg/.env
 docs/
+logs/
 .DS_Store
