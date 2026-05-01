@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 @dataclass
 class CanonicalType(ABC):
@@ -8,6 +8,14 @@ class CanonicalType(ABC):
     Tipo canónico abstracto. Cada subtipo representa una categoría
     semántica de dato (numérico, texto, temporal...) y sabe
     compilarse a SQL para cada dialecto.
+    
+    Regla de routing PRE / POST (decidida en CanonicalPipeline):
+      PRE : to_sql() tiene éxito en TODOS los dialectos involucrados.
+            La expresión entra en la query de data-diff directamente.
+      POST: to_sql() lanza UnsupportedTransformation en al menos uno.
+            La columna entra sin transformar en la query y
+            PostCanonicalizer aplica to_python() a ambos lados del
+            DiffRow antes del clasificador LLM.
     """
     column_name:      str
     nullable:         bool = True
@@ -22,6 +30,15 @@ class CanonicalType(ABC):
         """
         ...
 
+    @abstractmethod
+    def to_python(self) -> Callable:
+        """
+        Equivalente Python de to_sql().
+        Devuelve un callable (valor_raw) -> valor_canonizado.
+        Gestiona None respetando self.nullable.
+        """
+        ...
+        
     @abstractmethod
     def validate(self, value) -> bool:
         """

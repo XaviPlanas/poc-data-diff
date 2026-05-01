@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from .base import CanonicalType
+from typing      import Callable
+from .base       import CanonicalType
+
 
 @dataclass
 class NumericCanonical(CanonicalType):
@@ -21,6 +23,21 @@ class NumericCanonical(CanonicalType):
         expr = dialect.round_numeric(col, self.precision, self.scale)
         return self.with_null_handling(expr, dialect)
 
+    def to_python(self) -> Callable:
+        precision = self.precision
+        nullable  = self.nullable
+
+        def transform(value):
+            if value is None:
+                return 0 if nullable else None
+            try:
+                return round(float(value), precision)
+            except (TypeError, ValueError):
+                return value
+
+        transform.__name__ = f"NumericCanonical(precision={precision})"
+        return transform
+
     def validate(self, value) -> bool:
         try:
             float(value)
@@ -41,6 +58,20 @@ class IntegerCanonical(CanonicalType):
         col  = self.column_name
         expr = dialect.cast_integer(col)
         return self.with_null_handling(expr, dialect)
+
+    def to_python(self) -> Callable:
+        nullable = self.nullable
+
+        def transform(value):
+            if value is None:
+                return 0 if nullable else None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return value
+
+        transform.__name__ = "IntegerCanonical"
+        return transform
 
     def validate(self, value) -> bool:
         try:
