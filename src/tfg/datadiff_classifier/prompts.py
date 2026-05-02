@@ -438,7 +438,7 @@ Responde con este JSON exacto:
     "explicacion": "explicación concisa en español de máximo 2 frases",
 }}
 """
-SCHEMA_CONTEXT = """
+SCHEMA_CONTEXT_TITANIC = """
 | Columna     | Tipo      | Descripción                                      | Valores posibles / Notas                  |
 |-------------|-----------|--------------------------------------------------|-------------------------------------------|
 | survival    | int       | Sobrevivió o no                                  | 0 = No, 1 = Sí (target)                  |
@@ -774,3 +774,372 @@ Return **ONLY** valid JSON. One object per entity:
 "normalization_suggested": "SQL expression or null"
 }}
 """
+FEW_SHOT_EXAMPLES = [
+    # ── CANONIZABLE ──────────────────────────────────────────────
+    {
+        "role": "user",
+        "content": """\
+Clasifica la diferencia entre estos dos registros.
+
+Fuente A (mysql):
+{"PassengerId": 1, "name": "  Braund, Mr. Owen Harris  ", "fare": 7.25, "survived": 1}
+
+Fuente B (postgresql):
+{"PassengerId": 1, "name": "braund, mr. owen harris", "fare": 7.25, "survived": 1}
+
+Responde con este JSON exacto y nada más:
+{
+  "key": "1",
+  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "confianza": 0.0,
+  "columnas_afectadas": [],
+  "explicacion": "",
+  "normalizacion_sugerida": null
+}"""
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "1",
+  "categoria": "CANONIZABLE",
+  "confianza": 0.97,
+  "columnas_afectadas": ["name"],
+  "explicacion": "La columna name difiere solo en espacios iniciales/finales y capitalización. El valor semántico es idéntico.",
+  "normalizacion_sugerida": "LOWER(TRIM(name))"
+}"""
+    },
+
+    # ── EQUIVALENT_SEMANTIC ───────────────────────────────────────
+    {
+        "role": "user",
+        "content": """\
+Clasifica la diferencia entre estos dos registros.
+
+Fuente A (mysql):
+{"PassengerId": 14, "embarked": "C", "cabin": null, "survived": 0}
+
+Fuente B (postgresql):
+{"PassengerId": 14, "embarked": "Cherbourg", "cabin": null, "survived": 0}
+
+Responde con este JSON exacto y nada más:
+{
+  "key": "14",
+  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "confianza": 0.0,
+  "columnas_afectadas": [],
+  "explicacion": "",
+  "normalizacion_sugerida": null
+}"""
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "14",
+  "categoria": "EQUIVALENT_SEMANTIC",
+  "confianza": 0.92,
+  "columnas_afectadas": ["embarked"],
+  "explicacion": "\"C\" y \"Cherbourg\" son representaciones del mismo puerto de embarque. La equivalencia requiere conocimiento del dominio (código IATA/abreviatura del esquema Titanic), no es resoluble con una regla de transformación simple.",
+  "normalizacion_sugerida": null
+}"""
+    },
+
+    # ── DIFFERENT_CONTEXTUAL — caso moneda ────────────────────────
+    {
+        "role": "user",
+        "content": """\
+Clasifica la diferencia entre estos dos registros.
+
+Fuente A (mysql):
+{"PassengerId": 55, "fare": 26.0, "currency": "GBP", "survived": 1}
+
+Fuente B (postgresql):
+{"PassengerId": 55, "fare": 32.5, "currency": "USD", "survived": 1}
+
+Responde con este JSON exacto y nada más:
+{
+  "key": "55",
+  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "confianza": 0.0,
+  "columnas_afectadas": [],
+  "explicacion": "",
+  "normalizacion_sugerida": null
+}"""
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "55",
+  "categoria": "DIFFERENT_CONTEXTUAL",
+  "confianza": 0.85,
+  "columnas_afectadas": ["fare", "currency"],
+  "explicacion": "Los valores difieren en moneda y cantidad. Podrían ser equivalentes si se aplica el tipo de cambio GBP/USD histórico de la fecha de la transacción, pero esa equivalencia depende de datos externos no disponibles aquí.",
+  "normalizacion_sugerida": null
+}"""
+    },
+
+    # ── DIFFERENT_CONTEXTUAL — caso teléfono (fronterra con CANONIZABLE) ──
+    {
+        "role": "user",
+        "content": """\
+Clasifica la diferencia entre estos dos registros.
+
+Fuente A (mysql):
+{"PassengerId": 78, "ticket": "PC 17599", "phone": "+44 20 7946 0958", "survived": 0}
+
+Fuente B (postgresql):
+{"PassengerId": 78, "ticket": "PC 17599", "phone": "02079460958", "survived": 0}
+
+Responde con este JSON exacto y nada más:
+{
+  "key": "78",
+  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "confianza": 0.0,
+  "columnas_afectadas": [],
+  "explicacion": "",
+  "normalizacion_sugerida": null
+}"""
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "78",
+  "categoria": "DIFFERENT_CONTEXTUAL",
+  "confianza": 0.78,
+  "columnas_afectadas": ["phone"],
+  "explicacion": "Ambos valores podrían representar el mismo número telefónico londinense (+44 20 = 020 en formato nacional), pero la equivalencia depende de conocer que el prefijo internacional es +44 y que la fuente B omite el cero de marcación. No es determinista sin contexto de país.",
+  "normalizacion_sugerida": null
+}"""
+    },
+]
+
+SYSTEM_PROMPT_V2 = """\
+Eres un sistema especializado en reconciliación semántica de datos entre \
+fuentes heterogéneas. Recibes pares de registros que representan la misma \
+entidad en dos sistemas distintos y clasificas el impacto semántico de \
+sus diferencias.
+
+## ESQUEMA DE LA TABLA
+{schema_context}
+
+## CATEGORÍAS DE CLASIFICACIÓN
+
+Clasifica cada par en exactamente una de estas cinco categorías:
+
+CANONIZABLE
+  Los valores son semánticamente idénticos. La diferencia se puede eliminar \
+con una regla determinista: TRIM, LOWER, ROUND, normalización de fecha, \
+booleano, encoding Unicode. Proporciona siempre normalizacion_sugerida \
+como expresión SQL o Python.
+  Señales: diferencia de espacios, casing, precisión numérica trivial, \
+formato de fecha distinto para el mismo instante, NFC vs NFD.
+
+EQUIVALENT_SEMANTIC
+  Los valores son semánticamente equivalentes pero la equivalencia requiere \
+conocimiento de dominio que no es expresable como regla determinista.
+  Señales: abreviaturas conocidas ("BCN"/"Barcelona"), sinónimos, \
+"N/A" vs cadena vacía, distintas unidades de medida del mismo SI.
+
+DIFFERENT_STRUCTURAL
+  Los valores son semánticamente distintos de forma objetiva y verificable. \
+Sin ambigüedad de interpretación posible.
+  Señales: estados opuestos ("approved"/"rejected"), números claramente \
+distintos, fechas en días diferentes, texto con distinto significado real.
+
+DIFFERENT_CONTEXTUAL
+  Los valores son distintos pero la relevancia depende de reglas de negocio \
+externas. La diferencia es real pero podría ser aceptable según el contexto.
+  Señales: distinta moneda, prefijo telefónico nacional vs internacional, \
+títulos de puesto equivalentes en distintos organigramas.
+
+UNCERTAIN
+  Información insuficiente para clasificar con confianza ≥ {uncertainty_threshold}. \
+Úsala solo si ninguna de las anteriores se puede aplicar con certeza razonable.
+
+## PROCESO DE DECISIÓN
+
+1. ¿Son semánticamente equivalentes?
+   Sí + regla exacta disponible  → CANONIZABLE
+   Sí + requiere conocimiento     → EQUIVALENT_SEMANTIC
+
+2. Son distintos. ¿La diferencia es objetiva?
+   Sí, sin ambigüedad            → DIFFERENT_STRUCTURAL
+   Depende del contexto externo  → DIFFERENT_CONTEXTUAL
+
+3. No puedes decidir             → UNCERTAIN
+
+## REGLAS DE OUTPUT
+
+- Responde ÚNICAMENTE con el objeto JSON del prompt de usuario.
+- Sin texto antes ni después. Sin ```. Sin markdown.
+- normalizacion_sugerida: expresión SQL/Python si CANONIZABLE, null en otro caso.
+- confianza: float [0.0, 1.0]. Reserva > 0.95 para casos sin ninguna ambigüedad.
+- columnas_afectadas: solo las columnas con diferencias observables. \
+Si falta la fila completa en un lado, usa ["__ROW__"].\
+"""
+
+USER_PROMPT_V2 = """\
+Clasifica la diferencia entre estos dos registros.
+
+Fuente A ({source_a}):
+{row_a}
+
+Fuente B ({source_b}):
+{row_b}
+
+Responde con este JSON exacto y nada más:
+{{
+  "key": "{pk}",
+  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "confianza": 0.0,
+  "columnas_afectadas": [],
+  "explicacion": "",
+  "normalizacion_sql_sugerida": null
+}}\
+"""
+
+FEW_SHOT_EXAMPLES: List[Dict] = [
+
+    # ── CANONIZABLE: espacios + casing ───────────────────────────
+    {
+        "role": "user",
+        "content": textwrap.dedent("""\
+            Clasifica la diferencia entre estos dos registros.
+
+            Fuente A (mysql):
+            {"PassengerId": 1, "name": "  Braund, Mr. Owen Harris  ", "fare": 7.25}
+
+            Fuente B (postgresql):
+            {"PassengerId": 1, "name": "braund, mr. owen harris", "fare": 7.25}
+
+            Responde con este JSON exacto y nada más:
+            {
+              "key": "1",
+              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "confianza": 0.0,
+              "columnas_afectadas": [],
+              "explicacion": "",
+              "normalizacion_sugerida": null
+            }"""),
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "1",
+  "categoria": "CANONIZABLE",
+  "confianza": 0.97,
+  "columnas_afectadas": ["name"],
+  "explicacion": "La columna name difiere solo en espacios iniciales/finales y capitalización. El valor semántico es idéntico.",
+  "normalizacion_sugerida": "LOWER(TRIM(name))"
+}""",
+    },
+
+    # ── EQUIVALENT_SEMANTIC: abreviatura de dominio ───────────────
+    {
+        "role": "user",
+        "content": textwrap.dedent("""\
+            Clasifica la diferencia entre estos dos registros.
+
+            Fuente A (mysql):
+            {"PassengerId": 14, "embarked": "C", "survived": 0}
+
+            Fuente B (postgresql):
+            {"PassengerId": 14, "embarked": "Cherbourg", "survived": 0}
+
+            Responde con este JSON exacto y nada más:
+            {
+              "key": "14",
+              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "confianza": 0.0,
+              "columnas_afectadas": [],
+              "explicacion": "",
+              "normalizacion_sugerida": null
+            }"""),
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "14",
+  "categoria": "EQUIVALENT_SEMANTIC",
+  "confianza": 0.92,
+  "columnas_afectadas": ["embarked"],
+  "explicacion": "\"C\" y \"Cherbourg\" designan el mismo puerto. La equivalencia requiere conocimiento del esquema Titanic, no es una regla de transformación determinista.",
+  "normalizacion_sugerida": null
+}""",
+    },
+
+    # ── DIFFERENT_STRUCTURAL: cambio de estado real ───────────────
+    {
+        "role": "user",
+        "content": textwrap.dedent("""\
+            Clasifica la diferencia entre estos dos registros.
+
+            Fuente A (mysql):
+            {"PassengerId": 33, "survived": 0, "fare": 8.05}
+
+            Fuente B (postgresql):
+            {"PassengerId": 33, "survived": 1, "fare": 8.05}
+
+            Responde con este JSON exacto y nada más:
+            {
+              "key": "33",
+              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "confianza": 0.0,
+              "columnas_afectadas": [],
+              "explicacion": "",
+              "normalizacion_sugerida": null
+            }"""),
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "33",
+  "categoria": "DIFFERENT_STRUCTURAL",
+  "confianza": 0.99,
+  "columnas_afectadas": ["survived"],
+  "explicacion": "El valor de survived cambia de 0 (no sobrevivió) a 1 (sobrevivió). Es una diferencia semántica objetiva e inequívoca.",
+  "normalizacion_sugerida": null
+}""",
+    },
+
+    # ── DIFFERENT_CONTEXTUAL: moneda distinta ─────────────────────
+    {
+        "role": "user",
+        "content": textwrap.dedent("""\
+            Clasifica la diferencia entre estos dos registros.
+
+            Fuente A (mysql):
+            {"PassengerId": 55, "fare": 26.0, "currency": "GBP"}
+
+            Fuente B (postgresql):
+            {"PassengerId": 55, "fare": 32.5, "currency": "USD"}
+
+            Responde con este JSON exacto y nada más:
+            {
+              "key": "55",
+              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "confianza": 0.0,
+              "columnas_afectadas": [],
+              "explicacion": "",
+              "normalizacion_sugerida": null
+            }"""),
+    },
+    {
+        "role": "assistant",
+        "content": """\
+{
+  "key": "55",
+  "categoria": "DIFFERENT_CONTEXTUAL",
+  "confianza": 0.85,
+  "columnas_afectadas": ["fare", "currency"],
+  "explicacion": "Los valores difieren en moneda y cantidad. Podrían ser equivalentes aplicando el tipo de cambio histórico GBP/USD, pero esa equivalencia depende de datos externos no disponibles en este contexto.",
+  "normalizacion_sugerida": null
+}""",
+    },
+]
