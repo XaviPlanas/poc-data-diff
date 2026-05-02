@@ -1,22 +1,19 @@
 from dataclasses import asdict, dataclass
 from enum import Enum
 import json
-import hashlib  
-class DiffCategory(Enum):
-    # REAL                    = "REAL"
-    # FALSO_POSITIVO_TIPO     = "FALSO_POSITIVO_TIPO"
-    # FALSO_POSITIVO_NORM     = "FALSO_POSITIVO_NORMALIZACION"
-    # AMBIGUA                 = "AMBIGUA"
-    SEMANTICALLY_EQUIVALENT = "SEMANTICALLY_EQUIVALENT"
-    SEMANTICALLY_DIFFERENT  = "SEMANTICALLY_DIFFERENT"
-    UNCERTAIN               = "UNCERTAIN"
-    ERROR                   = "ERROR"
+import hashlib
 
+class DiffCategory(Enum):
+    CANONIZABLE          = "canonizable"
+    EQUIVALENT           = "equivalent"
+    CONTEXTUAL_DEPENDENT = "contextual_dependent" # depende de conocimiento de dominio
+    DIFFERENT_SEMANTIC   = "different_semantic"
+    UNCERTAIN            = "uncertain"
+    ERROR                = "error"
 class DiffAction(Enum):
     INSERT = "INSERT"
     DELETE = "DELETE"
     UPDATE = "UPDATE"
-
 @dataclass
 class DiffEvent:
     """Evento de diferencia, que contiene una columna divergente.
@@ -58,6 +55,21 @@ class DiffClassification:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
+    
+    def is_false_positive(self) -> bool:
+        """True si la diferencia es resuelta por canonización o equivalencia."""
+        return self.categoria in (
+            DiffCategory.CANONIZABLE,
+            DiffCategory.EQUIVALENT,
+        )
+
+    def needs_review(self) -> bool:
+        """True si requiere revisión humana."""
+        return self.categoria in (
+            DiffCategory.CONTEXTUAL_DEPENDENT,
+            DiffCategory.UNCERTAIN,
+            DiffCategory.ERROR
+        )
 
 @dataclass
 class SegmentStructure:
