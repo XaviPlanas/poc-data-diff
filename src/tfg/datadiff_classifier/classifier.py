@@ -1,17 +1,20 @@
-from typing import Iterator
+from typing import Iterator, List, Optional
 import json
-from urllib import response
-import traceback
 import re 
 import os 
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ollama import Client
 import anthropic 
 
 from tfg.datadiff_classifier.models import DiffEvent, DiffRow, DiffClassification, DiffCategory, DiffAction, SegmentStructure
-from tfg.datadiff_classifier.prompts import CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_2, PROMPT_ROW_BY_ROW_2, CONSTRAINED_OUTPUT_ROW_BY_ROW_2, \
+from tfg.datadiff_classifier.prompts import ( CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_2, PROMPT_ROW_BY_ROW_2, CONSTRAINED_OUTPUT_ROW_BY_ROW_2, \
         CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_QWEN2_5b, JSON_CONSTRAINED_OUTPUT, SCHEMA_CONTEXT_JSON,  \
         SYSTEM_PROMPT, CLASSIFY_PROMPT, PROMPT_PHI3, CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_1, CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
+)
+
+import logging
+logger = logging.getLogger(__name__)
 
 class DiffClassifier:
 
@@ -23,8 +26,9 @@ class DiffClassifier:
                  api_key: str = None,
                  prompt_template: str = None,
                  uncertainty_threshold: float = 0.7,
-                 ollama_use_chat: bool = False,
-                 DEBUG: bool = True):
+                 max_retries: int = 3):
+        
+        logger.debug(f"Inicializando DiffClassifier con provider={llm_provider}, model={model}, temperature={temperature}")
         
         self.schema_context = schema_context or SCHEMA_CONTEXT_JSON
         self.llm_provider = llm_provider
@@ -33,17 +37,165 @@ class DiffClassifier:
         self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
         self.prompt_template = prompt_template or CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
         self.uncertainty_threshold = uncertainty_threshold
-        self.ollama_use_chat = ollama_use_chat
-        self.DEBUG = DEBUG
         # Initialize client based on provider
         if self.llm_provider == 'anthropic':
             self.client = anthropic.Anthropic(api_key=self.api_key)
         elif self.llm_provider == 'ollama':
             self.client = Client(host='http://127.0.0.1:11434')
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")  
+            raise ValueError(f"LLM no soportado: {self.llm_provider}")  
     
-    def parse_diff_results(self, metadata: SegmentStructure, diffs: Iterator[dict]) -> list[DiffRow]    :
+    # =============================================
+    # ==== UTILIDADES
+    # =============================================
+    
+    @staticmethod
+    def row_to_events(diff: DiffRow) -> List[DiffEvent]:
+        """Convierte una diferencia de fila en eventos a nivel de columna."""
+        events = []
+        row_a = diff.row_a
+        row_b = diff.row_b
+        key = diff.key
+        
+        logger.trace(f"Convirtiendo DiffRow a eventos: key={key}, row_a={row_a}, row_b={row_b}")
+        if row_a is None:  # INSERT
+            for col, val in (row_b or {}).items():
+                events.append(DiffEvent(
+                    key=key, columna=col, valor_a=None, valor_b=val,
+                    accion=DiffAction.INSERT
+                ))
+        elif row_b is None:  # DELETE
+            for col, val in (row_a or {}).items():
+                events.append(DiffEvent(
+                    key=key, columna=col, valor_a=val, valor_b=None,
+                    accion=DiffAction.DELETE
+                ))
+        else:  # UPDATE - solo registramos como eventos las columnas que difieren
+            columns = set((row_a or {}).keys()) | set((row_b or {}).keys())
+            for col in columns:
+                val_a = row_a.get(col)
+                val_b = row_b.get(col)
+                if val_a != val_b:
+                    events.append(DiffEvent(
+                        key=key, columna=col,
+                        valor_a=val_a, valor_b=val_b
+                    ))
+        return events
+
+    def _extract_json(self, text: str) -> dict:
+        """Extrae y parsea JSON de la respuesta del LLM, gestiona casos de formato conocidos"""
+        logger.trace(f"Extrayendo JSON de texto: {text[:300]}{'...' if len(text) > 300 else ''}")
+        
+        text = text.strip()
+        # Eliminar bloques de código markdown
+        text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text, flags=re.MULTILINE)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback con regex
+            match = re.search(r'(\{[\s\S]*\})', text)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except:
+                    pass
+            raise ValueError(f"No se pudo extraer JSON válido. Texto: {text[:300]}...")
+
+    def _build_classification(self, item: DiffRow | DiffEvent, data: dict) -> DiffClassification:
+        try:
+            logger.debug(f"Construyendo clasificación para item: {item}, con datos: {data}")
+            cat_str = data.get("category", "UNCERTAIN").upper()
+            categoria = DiffCategory[cat_str] if cat_str in DiffCategory.__members__ else DiffCategory.UNCERTAIN
+
+            return DiffClassification(
+                key=item.key,
+                accion=getattr(item, 'accion', DiffAction.UPDATE),
+                categoria=categoria,
+                confianza=float(data.get("confidence_of_category", 0.0)),
+                columnas_afectadas=data.get("affected_columns", []),
+                explicacion=data.get("explanation", ""),
+                normalizacion_sugerida=data.get("normalization_suggested"),
+                row_a=getattr(item, 'row_a', None) if isinstance(item, DiffRow) else None,
+                row_b=getattr(item, 'row_b', None) if isinstance(item, DiffRow) else None
+            )
+        except Exception as e:
+            logger.error(f"Error construyendo clasificación: {e}")
+            return DiffClassification(
+                key=item.key,
+                accion=DiffAction.UPDATE,
+                categoria=DiffCategory.ERROR,
+                confianza=0.0,
+                columnas_afectadas=[],
+                explicacion=f"Error parsing LLM response: {str(e)}",
+                row_a=None, row_b=None
+            )
+            
+    # =========== Llamada externa IA ===============
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def _call_llm(self, prompt: str) -> dict:
+        """Llamada al LLM con reintentos."""
+        logger.trace(f"Realizando llamada al LLM con prompt:\n{prompt[:500]}{'...' if len(prompt) > 500 else ''}\n")
+        try:
+            if self.llm_provider == 'anthropic':
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    temperature=self.temperature,
+                    system=SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                raw = response.content[0].text.strip()
+
+            elif self.llm_provider == 'ollama':
+                response = self.client.chat(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    options={"temperature": self.temperature}
+                )
+                raw = response["message"]["content"].strip()
+
+        
+            logger.debug(f"Respuesta LLM:\n{raw[:700]}{'...' if len(raw) > 700 else ''}\n")
+
+            return self._extract_json(raw)
+
+        except Exception as e:
+            logger.error(f"Error en llamada LLM: {e}")
+            raise
+    # ================== Filtro PRE - IA  ======================
+
+    def _cribador(self, row: DiffRow) -> Optional[DiffClassification]:
+        """Maneja casos deterministas que no requieren de LLM (INSERT / DELETE)."""
+        
+        logger.trace(f"Aplicando cribador a DiffRow: key={row.key}, row_a={row.row_a}, row_b={row.row_b}")
+        
+        if row.row_a is None or row.row_b is None:
+            accion = DiffAction.INSERT if row.row_a is None else DiffAction.DELETE
+            return DiffClassification(
+                key=row.key,
+                accion=accion,
+                categoria=DiffCategory.SEMANTICALLY_DIFFERENT,
+                confianza=1.0,
+                columnas_afectadas=['*'],
+                explicacion=f"{accion.name} del registro con clave {row.key}",
+                normalizacion_sugerida=None,
+                row_a=row.row_a,
+                row_b=row.row_b
+            )
+        return None    
+    # ====================== MÉTODOS PRINCIPALES ======================
+    
+    def parse_to_diffrows(self, metadata: SegmentStructure, diffs: Iterator[dict]) -> list[DiffRow]    :
+       
         """ Convierte la salida de data-diff en una lista de DiffRow, que es el formato de entrada esperado por el clasificador.
             Cada DiffRow representa una fila divergente, con toda la información de ambas filas y sus fuentes.
         """
@@ -66,14 +218,14 @@ class DiffClassifier:
         update = right_idx & left_idx
         all_pk = right_idx | left_idx
 
-        if self.DEBUG : 
-            print(60*'=')
-            print(f"Insertados   (INS) [{len(insert)}] : {insert}"  )
-            print(f"Eliminados   (DEL) [{len(delete)}] : {delete}"  )
-            print(f"Actualizados (UPD) [{len(update)}] : {update}"  )
-            print(60*'-')
-            print(f"Cambios detectados por data-diff en total (2UPD + DEL + INS): {total}")
-            print(60*'=')
+         
+        logger.debug(60*'=')
+        logger.debug(f"Insertados   (INS) [{len(insert)}] : {insert}"  )
+        logger.debug(f"Eliminados   (DEL) [{len(delete)}] : {delete}"  )
+        logger.debug(f"Actualizados (UPD) [{len(update)}] : {update}"  )
+        logger.debug(60*'-')
+        logger.debug(f"Cambios detectados por data-diff en total (2UPD + DEL + INS): {total}")
+        logger.debug(60*'=')
 
         # Construimos la lista de DiffRows (interfaz para classifier.py)
         for pk in all_pk:
@@ -85,300 +237,68 @@ class DiffClassifier:
                 source_b = 'postgresql'
             ))
         return diffrows
-                  
-    def __IAsearch(self, row: DiffRow, prompt = None) -> str:
-        """ Función auxiliar para llamar a la API del LLM con un prompt dado y devolver la respuesta JSON. """
-        
-        prompt = prompt or self.prompt_template.format(
-            source_a=row.source_a,
-            source_b=row.source_b,
-            schema_context=self.schema_context,
-            row_a=json.dumps(row.row_a, ensure_ascii=False),
-            row_b=json.dumps(row.row_b, ensure_ascii=False),
-        )
-
-        if self.llm_provider == 'anthropic':
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                temperature=self.temperature,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            raw = response.content[0].text.strip()
-        elif self.llm_provider == 'ollama':
-            if self.ollama_use_chat:
-                response = self.client.chat(
-                    model=self.model,
-                    options={"temperature": self.temperature},
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": SYSTEM_PROMPT,
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        },
-                    ],
-                )
-                raw = response["message"]["content"].strip()
-            else:
-                response = self.client.generate(
-                    model=self.model,             
-                    prompt=prompt,
-                    options={"temperature": self.temperature},
-                    format="json"
-                )
-                raw = response["response"].strip()
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
-
-        print(f"Raw response from {self.model}:\n{raw}\n")
-        
-        match = re.search(r"\{.*\}", raw, re.DOTALL) #raw vienen como markdown JSON
-        data = json.loads(match.group())
-        return data
-          
-    def IAclassify(self, row: DiffRow, prompt = None) -> DiffClassification :
-        
-        #Obtenmos la clasificación del LLM en formato JSON
-        data = self.__IAsearch(row, prompt)
-        #print(f"Data parsed from LLM response:\n{data}\n")
-        try:
-            # Mapear strings a enums 
-            try:
-                categoria_str = data.get("category", "UNCERTAIN")
-                print(f"Categoria: {categoria_str}")
-                categoria = DiffCategory(categoria_str)
-            except ValueError:
-                categoria = DiffCategory.ERROR
-            
-            # Construimos el DiffClassification resultante  
-            # a partir del JSON devuelto por el LLM
-            result = DiffClassification(
-                key=row.key,
-                accion= DiffAction.UPDATE,
-                categoria=categoria,
-                confianza=float(data.get("confidence_of_category", 0.0)),
-                columnas_afectadas=data.get("affected_columns", []),
-                explicacion=data.get("explanation", ""),
-                normalizacion_sugerida=data.get("normalization_suggested"),
-                row_a=row.row_a,
-                row_b=row.row_b
-            )
-
-            # Aplicar umbral de incertidumbre
-            if result.confianza < self.uncertainty_threshold:
-                result.categoria = DiffCategory.UNCERTAIN
-            
-            return result
-        
-        except Exception as e:
-            print(f"Error procesando key {row}: {e}")
-            print(traceback.format_exc())
-            return DiffClassification(
-                key=row.key,
-                accion = DiffAction.UPDATE,
-                categoria = DiffCategory.ERROR,
-                confianza=0.0,
-                columnas_afectadas=[],
-                explicacion=f"Error en LLM: {str(e)}",
-                normalizacion_sugerida=None,
-                row_a=row.row_a,
-                row_b=row.row_b
-            )
-        
-    def __normalizador(self,row : DiffRow ) -> DiffClassification | None :
-        " Normalizador de casos obvios, como filas completamente ausentes (INSERT/DELETE) "
-        " o con diferencias triviales."
-
-        if row.row_a is None or row.row_b is None :
-            if row.row_a is None:
-                accion = DiffAction.DELETE
-            else:
-                accion = DiffAction.INSERT
-
-            return DiffClassification(
-                key=row.key,
-                accion=accion,
-                categoria= DiffCategory.SEMANTICALLY_DIFFERENT,
-                confianza=1,
-                columnas_afectadas=['*'],
-                explicacion=f"{accion} del Identificador {row.key}",
-                normalizacion_sugerida=None,
-                row_a=row.row_a,
-                row_b=row.row_b
-            )
-        return None
     
-    def report_statistics(self, classifications: list[DiffClassification]) :
-        """ Función auxiliar para obtener estadísticas de las clasificaciones. """
-        stats = {
-            DiffCategory.SEMANTICALLY_EQUIVALENT: 0,
-            DiffCategory.SEMANTICALLY_DIFFERENT: 0,
-            DiffCategory.UNCERTAIN: 0,
-            DiffCategory.ERROR: 0,
-            'Total' : 0
-        }
-        for c in classifications:
-            stats[c.categoria] += 1
-            stats['Total'] += 1
-        
-        print (f"Total diferencias clasificadas: {stats['Total']}")
-        print (f"Diferencias clasificadas como SEMANTICALLY_DIFFERENT: {stats[DiffCategory.SEMANTICALLY_DIFFERENT]}") 
-        print (f"Diferencias clasificadas como SEMANTICALLY_EQUIVALENT: {stats[DiffCategory.SEMANTICALLY_EQUIVALENT]}")
-        print (f"Diferencias clasificadas como UNCERTAIN: {stats[DiffCategory.UNCERTAIN]}")      
-        print (f"Diferencias clasificadas como ERROR: {stats[DiffCategory.ERROR]}")      
+    def classify_one_row(self, row: DiffRow) -> List[DiffClassification]:
+        """Clasifica una sola fila (a nivel de columna)."""
+        logger.debug(f"Clasificando DiffRow: key={row.key}")
+        cribador_result = self._cribador(row)
+        if cribador_result:
+            return [cribador_result]
 
-
-    def diffdata_to_events(diff: DiffRow) -> list[DiffEvent]:
-        """ Del modelo basado en entidades a atributos:
-         - DiffData representa una diferencia a nivel de fila, con toda la información de ambas filas.
-         - DiffEvent representa una diferencia a nivel de columna, con el valor específico de esa columna en ambas fuentes.
-        En la función se desglosan las diferencias fila a fila en eventos columna a columna, para luego clasificarlos individualmente.
-        """
-        eventos = []
-
-        if diff.registro_a is None:
-            # El registro no existía en A: es una inserción
-            for col, val in diff.registro_b.items():
-                eventos.append(DiffEvent(
-                    key=diff.key,
-                    columna=col,
-                    valor_a=None,
-                    valor_b=val,
-                    accion=DiffAction.INSERT
-                ))
-
-        elif diff.registro_b is None:
-            # El registro no existe en B: ha sido eliminado
-            for col, val in diff.registro_a.items():
-                eventos.append(DiffEvent(
-                    key=diff.key,
-                    columna=col,
-                    valor_a=val,
-                    valor_b=None,
-                    accion=DiffAction.DELETE
-                ))
-
-        else:
-            # El registro existe en ambas fuentes: comparar columna a columna
-            columnas = set(diff.registro_a.keys()) | set(diff.registro_b.keys())
-            for col in columnas:
-                val_a = diff.registro_a.get(col)
-                val_b = diff.registro_b.get(col)
-                if val_a != val_b:
-                    eventos.append(DiffEvent(
-                        key=diff.key,
-                        columna=col,
-                        valor_a=val_a,
-                        valor_b=val_b,
-                        accion=DiffAction.UPDATE
-                    ))
-
-        return eventos
-
-    def classify_all(self, diff_row: DiffRow) -> list[DiffClassification]:
-        
-        prompt = self.prompt_template.format(
-            source_a        = diff_row.source_a,
-            source_b        = diff_row.source_b,
-            #schema_context  = self.schema_context,
-            row_a           = json.dumps(diff_row.row_a, ensure_ascii=False),
-            row_b           = json.dumps(diff_row.row_b, ensure_ascii=False),            
-        )
-        print(f"Utilizando el PROMPT: {prompt}")
-        
-        if self.llm_provider == 'ollama' and not self.ollama_use_chat:
-            response = self.client.generate(
-                model= self.model,
-                prompt= prompt,
-                options={
-                    "temperature": self.temperature,
-                },
-                format = "json"
-            )
-
-            print(response["response"])
-            print("Total (ms):", response['total_duration']/1e6)
-            print("Prompt eval (ms):", response['prompt_eval_duration']/1e6)
-            print("Generation (ms):", response['eval_dduration']/1e6)
-
-        elif self.llm_provider == 'ollama' and self.ollama_use_chat:
-            response = self.client.chat(
-                model   = self.model,
-                options = {"temperature": self.temperature},
-                messages = [
-                    {
-                        "role":    "system",
-                        "content": SYSTEM_PROMPT,
-                    },
-                    {
-                        "role":    "user",
-                        "content": prompt,
-                    },
-                ],
-            )
-            print(response["message"]["content"])
-        elif self.llm_provider == 'anthropic':
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1024,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            print(response.content[0].text.strip())
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
-
-    def classify_one_row(self, row: DiffRow) -> DiffClassification:
-
-        prompt_text = self.prompt_template.format(
-            source_a=row.source_a,
-            source_b=row.source_b,
-            row_a=row.row_a or '{"__missing__": true}',
-            row_b=row.row_b or '{"__missing__": true}'
-        ).strip()
-
-        clasificacion = self.__normalizador(row) # Filtra UPD 
-        
-        if clasificacion is None: # pasamos a la IA los casos no resueltos por el normalizador 
-            clasificacion = self.IAclassify(prompt=prompt_text, row=row)
-           
-        return clasificacion
-
-    def classify_row_by_row ( self, diffrows: list[DiffRow] , max_rows: int = 0) -> list[DiffClassification] :
-        """
-        Clasifica la lista de diferencias llamando al LLM fila por fila
-        """
-        diffresults = []
-        n = 0
-    
-        for diff in diffrows:
-            result = self.classify_one_row(diff)
-            diffresults.append(result)
-            #print(f"Resultado clasificación fila {diff.key}: {result}\n")
-            if max_rows > 0 and n >= max_rows:
-                break
-            n+=1
-        return diffresults
-
-    def classify_batch(
-        self, 
-        diff_rows: list[DiffRow],
-        confidence_threshold: float = 0.85
-    ) -> list[DiffClassification]:
-        """
-        Clasifica una lista de diferencias. Las clasificaciones
-        por debajo del umbral de confianza se marcan como UNCERTAIN
-        para revisión manual.
-        """
+        events = self.row_to_events(row)
         results = []
-        for row in diff_rows:
-            result = self.classify(row)
-            if result.confianza < confidence_threshold:
-                result.categoria = DiffCategory.UNCERTAIN
-            results.append(result)
+
+        for event in events:
+            prompt = self.prompt_template.format(
+                source_a=row.source_a,
+                source_b=row.source_b,
+                schema_context=self.schema_context,
+                row_a=json.dumps({event.columna: event.valor_a}, ensure_ascii=False),
+                row_b=json.dumps({event.columna: event.valor_b}, ensure_ascii=False),
+            )
+
+            data = self._call_llm(prompt)
+            classification = self._build_classification(event, data)
+            results.append(classification)
+
         return results
+
+    def classify_row_by_row(self, diffrows: List[DiffRow], max_rows: int = 0) -> List[DiffClassification]:
+        """Clasifica múltiples filas de forma síncrona."""
+        logger.info(f"Clasificando {len(diffrows)} filas (max_rows={max_rows})")
+        all_results = []
+        for i, diff in enumerate(diffrows):
+            if max_rows > 0 and i >= max_rows:
+                break
+
+            try:
+                row_results = self.classify_one_row(diff)
+                all_results.extend(row_results)
+            except Exception as e:
+                logger.error(f"Error clasificando fila {diff.key}: {e}")
+                # Añadir error como resultado
+                all_results.append(DiffClassification(
+                    key=diff.key,
+                    accion=DiffAction.UPDATE,
+                    categoria=DiffCategory.ERROR,
+                    confianza=0.0,
+                    columnas_afectadas=[],
+                    explicacion=f"Excepción: {str(e)}",
+                    row_a=diff.row_a,
+                    row_b=diff.row_b
+                ))
+
+        return all_results
+
+    def report_statistics(self, classifications: List[DiffClassification]):
+        """Estadísticas de clasificación."""
+        from collections import Counter
+        stats = Counter(c.categoria for c in classifications)
+
+        print("\n" + "="*60)
+        print("REPORTE DE CLASIFICACIÓN")
+        print("="*60)
+        print(f"Total procesado : {len(classifications):>25}")
+        for cat, count in stats.most_common():
+            print(f"{cat.name:25} : {count:4d}")
+        print("="*60)
