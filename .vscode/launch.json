@@ -6,7 +6,7 @@
             "type": "python",
             "request": "launch",
             // "module": "tfg.datadiff_classifier.main",
-            "module": "titanic_poc.titanic_canonical",
+            "module": "titanic_poc.titanic_datadiff",
             "console": "integratedTerminal",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}/src"

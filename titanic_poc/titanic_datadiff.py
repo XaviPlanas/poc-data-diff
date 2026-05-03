@@ -15,8 +15,9 @@ from tfg.datadiff_classifier.models import SegmentStructure
 
 import logging
 from tfg.logging_config import setup_logging, timed
-setup_logging(level="DEBUG")
+
 logger = logging.getLogger("tfg.titanic_poc.titanic_datadiff")
+setup_logging(level="DEBUG")
 logger.debug("Cargando locales y configuración")
 
 cfg = Config()
@@ -65,7 +66,7 @@ with timed(logger, "Búsqueda de diferencias con data-diff", level="INFO"):
 ###################################
 with timed(logger, "Clasificación de diferencias", level="INFO"):
     clasificaciones = []
-    clasificaciones = clasificador.classify_row_by_row(diffrows,15)
+    clasificaciones = clasificador.classify_row_by_row(diffrows,30)
 
 ###################################
 # Reportamos las diferencias
@@ -73,8 +74,11 @@ with timed(logger, "Clasificación de diferencias", level="INFO"):
 
 logger.info(f"Total de clasificaciones obtenidas: {len(clasificaciones)}")
 
+print("\nEjemplos de 5 clasificaciones:\n") 
+for c in clasificaciones[:5] :
+    print(c.to_json())
+
 clasificador.report_statistics(clasificaciones)
 
-print("\nEjemplos de 10 clasificaciones:\n") 
-for c in clasificaciones[:10] :
-    print(c.to_json())
+clasificador.report_details(clasificaciones)
+
