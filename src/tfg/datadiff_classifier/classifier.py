@@ -1,4 +1,5 @@
 from typing import Iterator, List, Optional
+from textwrap import dedent
 import json
 import re 
 import os 
@@ -8,12 +9,14 @@ from ollama import Client
 import anthropic 
 
 from tfg.datadiff_classifier.models import DiffEvent, DiffRow, DiffClassification, DiffCategory, DiffAction, SegmentStructure
-from tfg.datadiff_classifier.prompts import ( CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_2, PROMPT_ROW_BY_ROW_2, CONSTRAINED_OUTPUT_ROW_BY_ROW_2, \
-        CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_QWEN2_5b, JSON_CONSTRAINED_OUTPUT, SCHEMA_CONTEXT_JSON,  \
-        SYSTEM_PROMPT, CLASSIFY_PROMPT, PROMPT_PHI3, CLASSIFY_PROMPT_FROM_DICT_OPTIMIZED_1, CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
+from tfg.datadiff_classifier.prompts import ( SYSTEM_PROMPT, SYSTEM_PROMPT_V2, 
+                                             SCHEMA_CONTEXT_TITANIC, 
+                                             USER_PROMPT_V2,
+                                             FEW_SHOT_EXAMPLES
 )
 
 import logging
+from tfg.logging_config import setup_logging, timed
 logger = logging.getLogger(__name__)
 
 class DiffClassifier:
@@ -25,21 +28,29 @@ class DiffClassifier:
                  temperature: float = 0.0, 
                  api_key: str = None,
                  prompt_template: str = None,
+                 few_shot: bool = True,
                  uncertainty_threshold: float = 0.7,
                  max_retries: int = 3):
         
         logger.debug(f"Inicializando DiffClassifier con provider={llm_provider}, model={model}, temperature={temperature}")
         
-        self.schema_context = schema_context or SCHEMA_CONTEXT_JSON
+        self.schema_context = schema_context or SCHEMA_CONTEXT_TITANIC
         self.llm_provider = llm_provider
         self.model = model
         self.temperature = temperature
         self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
-        self.prompt_template = prompt_template or CLASSIFY_PROMPT_SEMANTIC_ROW_DIFF
+        self.prompt_template = prompt_template or USER_PROMPT_V2 
+        self.few_shot = few_shot
         self.uncertainty_threshold = uncertainty_threshold
         # Initialize client based on provider
         if self.llm_provider == 'anthropic':
+            logger.debug("Inicializando cliente Anthropic")
             self.client = anthropic.Anthropic(api_key=self.api_key)
+        
+            self._system = SYSTEM_PROMPT_V2.format(
+                schema_context        = self.schema_context,
+                uncertainty_threshold = self.uncertainty_threshold,
+            )
         elif self.llm_provider == 'ollama':
             self.client = Client(host='http://127.0.0.1:11434')
         else:
@@ -50,7 +61,7 @@ class DiffClassifier:
     # =============================================
     
     @staticmethod
-    def row_to_events(diff: DiffRow) -> List[DiffEvent]:
+    def to_events(diff: DiffRow) -> List[DiffEvent]:
         """Convierte una diferencia de fila en eventos a nivel de columna."""
         events = []
         row_a = diff.row_a
@@ -133,44 +144,61 @@ class DiffClassifier:
             
     # =========== Llamada externa IA ===============
     
+    def _haiku_message(self, diff: DiffRow) -> dict:
+        """Llamada al modelo Haiku de Anthropic con manejo de reintentos."""
+        
+        messages = list(FEW_SHOT_EXAMPLES) if self.few_shot else []
+        
+        prompt = self.prompt_template.format(  
+            pk = diff.key,
+            source_a=diff.source_a,
+            source_b=diff.source_b,
+            row_a=json.dumps(diff.row_a, ensure_ascii=False),
+            row_b=json.dumps(diff.row_b, ensure_ascii=False),
+        )       
+        
+        messages.append({"role": "user", "content": prompt})
+        
+        return messages
+    
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True
-    )
-    def _call_llm(self, prompt: str) -> dict:
+    )   
+    def _call_llm_one_row (self, diff: DiffRow) -> dict:
         """Llamada al LLM con reintentos."""
-        logger.trace(f"Realizando llamada al LLM con prompt:\n{prompt[:500]}{'...' if len(prompt) > 500 else ''}\n")
-        try:
-            if self.llm_provider == 'anthropic':
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=1024,
-                    temperature=self.temperature,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                raw = response.content[0].text.strip()
+        with timed (logger, f"Llamando al LLM para DiffRow con key={diff.key}", level="DEBUG"):
+            try:
+                if self.llm_provider == 'anthropic':
+                    response = self.client.messages.create(
+                        model=self.model,
+                        max_tokens=1024,
+                        temperature=self.temperature,
+                        system = self._system,
+                        messages= self._haiku_message(diff)
+                    )
+                    raw = response.content[0].text.strip()
 
-            elif self.llm_provider == 'ollama':
-                response = self.client.chat(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    options={"temperature": self.temperature}
-                )
-                raw = response["message"]["content"].strip()
+                elif self.llm_provider == 'ollama':
+                    response = self.client.chat(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": self._system},
+                            {"role": "user", "content": prompt}
+                        ],
+                        options={"temperature": self.temperature}
+                    )
+                    raw = response["message"]["content"].strip()
 
-        
-            logger.debug(f"Respuesta LLM:\n{raw[:700]}{'...' if len(raw) > 700 else ''}\n")
+            
+                logger.debug(f"Respuesta LLM:\n{raw[:700]}{'...' if len(raw) > 700 else ''}\n")
 
-            return self._extract_json(raw)
+                return self._extract_json(raw)
 
-        except Exception as e:
-            logger.error(f"Error en llamada LLM: {e}")
-            raise
+            except Exception as e:
+                logger.error(f"Error en llamada LLM: {e}")
+                raise
     # ================== Filtro PRE - IA  ======================
 
     def _cribador(self, row: DiffRow) -> Optional[DiffClassification]:
@@ -183,7 +211,7 @@ class DiffClassifier:
             return DiffClassification(
                 key=row.key,
                 accion=accion,
-                categoria=DiffCategory.SEMANTICALLY_DIFFERENT,
+                categoria=DiffCategory.DIFFERENT_SEMANTICAL,
                 confianza=1.0,
                 columnas_afectadas=['*'],
                 explicacion=f"{accion.name} del registro con clave {row.key}",
@@ -245,21 +273,12 @@ class DiffClassifier:
         if cribador_result:
             return [cribador_result]
 
-        events = self.row_to_events(row)
+        #events = self.to_events(row) TODO: Desarrollar las funcionalidades de eventos
         results = []
 
-        for event in events:
-            prompt = self.prompt_template.format(
-                source_a=row.source_a,
-                source_b=row.source_b,
-                schema_context=self.schema_context,
-                row_a=json.dumps({event.columna: event.valor_a}, ensure_ascii=False),
-                row_b=json.dumps({event.columna: event.valor_b}, ensure_ascii=False),
-            )
-
-            data = self._call_llm(prompt)
-            classification = self._build_classification(event, data)
-            results.append(classification)
+        data = self._call_llm_one_row(row)
+        classification = self._build_classification(row, data)
+        results.append(classification)
 
         return results
 

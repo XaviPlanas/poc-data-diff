@@ -1,102 +1,12 @@
+import textwrap
+from typing import List, Dict, Any
+
 CLASSIFY_PROMPT = """
 Eres un experto en bases de datos heterogéneas. Estás analizando 
 diferencias detectadas por data-diff entre {source_a} y {source_b}.
 
 Contexto del esquema:
 {schema_context}
-
-Fila en {source_a}:
-{row_a}
-
-Fila en {source_b}:
-{row_b}
-
-Clasifica la diferencia en UNA de estas categorías:
-
-- REAL: los datos son semánticamente distintos. La diferencia 
-  es significativa e indica una divergencia real entre los sistemas.
-
-- FALSO_POSITIVO_TIPO: mismo valor, representación distinta por 
-  diferencias en tipos de datos entre motores (coma flotante, 
-  precisión numérica, booleanos, timestamps).
-
-- FALSO_POSITIVO_NORMALIZACION: mismo valor semántico, representación 
-  distinta por normalización asimétrica (encoding, collation, 
-  mayúsculas, espacios, charset).
-
-- AMBIGUA: no se puede determinar la categoría con los datos 
-  disponibles.
-
-Responde ÚNICAMENTE con JSON válido, sin texto adicional:
-{{
-    "categoria": "REAL|FALSO_POSITIVO_TIPO|FALSO_POSITIVO_NORMALIZACION|AMBIGUA",
-    "confianza": <float entre 0.0 y 1.0>,
-    "columnas_afectadas": ["col1", "col2"],
-    "explicacion": "<explicación concisa en español>",
-    "normalizacion_sugerida": "<expresión SQL o null>"
-}}
-"""
-
-CLASSIFY_PROMPT_FROM_DICT = """
-Eres un experto en bases de datos heterogéneas. Estás analizando 
-diferencias detectadas por data-diff entre {source_a} y {source_b}.
- Los valores de los datos se proporcionan en formato diccionario de diccionario python
- la primera clave es la clave primaria y el valor es otro diccionario con pares clave valor que
- corresponden a cada columna y su valor
-
-Contexto del esquema:
-
-**Variable**
-
-**Definition**
-
-**Key**
-
-survival
-
-Survival
-
-0 = No, 1 = Yes
-
-pclass
-
-Ticket class
-
-1 = 1st, 2 = 2nd, 3 = 3rd
-
-sex
-
-Sex
-
-Age
-
-Age in years
-
-sibsp
-
-\# of siblings / spouses aboard the Titanic
-
-parch
-
-\# of parents / children aboard the Titanic
-
-ticket
-
-Ticket number
-
-fare
-
-Passenger fare
-
-cabin
-
-Cabin number
-
-embarked
-
-Port of Embarkation
-
-C = Cherbourg, Q = Queenstown, S = Southampton
 
 Fila en {source_a}:
 {row_a}
@@ -937,7 +847,7 @@ como expresión SQL o Python.
   Señales: diferencia de espacios, casing, precisión numérica trivial, \
 formato de fecha distinto para el mismo instante, NFC vs NFD.
 
-EQUIVALENT_SEMANTIC
+EQUIVALENT
   Los valores son semánticamente equivalentes pero la equivalencia requiere \
 conocimiento de dominio que no es expresable como regla determinista.
   Señales: abreviaturas conocidas ("BCN"/"Barcelona"), sinónimos, \
