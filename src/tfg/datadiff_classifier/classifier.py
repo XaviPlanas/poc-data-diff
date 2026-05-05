@@ -1,21 +1,28 @@
+from datetime import datetime
 from typing import Iterator, List, Optional
 from textwrap import dedent
 import json
 import re 
+from PIL import report
 import os 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ollama import Client
-import anthropic 
+import anthropic
+from tomlkit import datetime 
+from tfg.datadiff_classifier import report
 
 from tfg.datadiff_classifier.models import DiffEvent, DiffRow, DiffClassification, DiffCategory, DiffAction, SegmentStructure
+from tfg.datadiff_classifier.narrator_stats import ReportExporter
 from tfg.datadiff_classifier.prompts import ( SYSTEM_PROMPT, SYSTEM_PROMPT_V2, 
                                              SCHEMA_CONTEXT_TITANIC, 
                                              USER_PROMPT_V2,
                                              FEW_SHOT_EXAMPLES
 )
 
-import logging
+import logging, ReportExporter
+from tfg.datadiff_classifier.report import DiffReport, ReportNarrator
+from tfg.datadiff_classifier.report import ReportNarrator
 from tfg.logging_config import setup_logging, timed
 logger = logging.getLogger(__name__)
 
@@ -313,40 +320,115 @@ class DiffClassifier:
 
         return all_results
 
-    def report_statistics(self, classifications: List[DiffClassification]):
-        """Estadísticas de clasificación."""
-        from collections import Counter
-        stats = Counter(c.categoria for c in classifications)
-        actions = Counter(c.accion for c in classifications)
-        falsos_positivos = sum(1 for c in classifications if c.is_false_positive())
-        neded_review = sum(1 for c in classifications if c.needs_review())
-        total = len(classifications)
+    def report_classifications(self, classifications: List[DiffClassification]):
+        """Método placeholder para generación de reportes."""
+        
+        report = DiffReport(classifications)
 
-        WIDTH = 60
-        LABEL = 50   # ancho fijo para etiquetas
+        # Antes: clf.report_statistics(classifications)
+        report.print_summary()
 
-        print("\n" + "=" * WIDTH)
-        print("REPORTE DE CLASIFICACIÓN".center(WIDTH))
-        print("=" * WIDTH)
+        # Antes: clf.report_details(classifications)
+        report.print_details(false_positives=True, review=True)
 
-        print(f"{'Total procesado':<{LABEL}} : {len(classifications):>4d}")
+        # Nuevo: análisis por columna
+        report.print_column_analysis()
 
-        print("\n--- Clasificación por categoría ---")
-        for cat, count in stats.most_common():
-            print(f"{cat.name:<{LABEL}} : {count:>4d}")
+        # Nuevo: reglas sugeridas
+        report.print_canonizable_rules()
 
-        print("\n--- Clasificación por acción ---")
-        for action, count in actions.most_common():
-            print(f"{action.name:<{LABEL}} : {count:>4d}")
+        # ─────────────────────────────────────────────────────────────────
+        # Resumen operativo de los datos
+        # ─────────────────────────────────────────────────────────────────
 
-        print("\n--- Resumen de Detalles ---")
-        print(f"{'Falsos positivos (canonizables/equivalentes)':<{LABEL}} : "
-            f"{falsos_positivos:>4d}/{total:<4d} ({falsos_positivos/total:.2%})")
+        summ  = report.summary()
+        print(f"\nFalse positive rate  : {summ['tasas']['false_positive_rate']:.1%}")
+        print(f"Structural diff rate : {summ['tasas']['structural_diff_rate']:.1%}")
+        print(f"Review rate          : {summ['tasas']['review_rate']:.1%}")
 
-        print(f"{'Requieren revisión (contextual/uncertain/error)':<{LABEL}} : "
-            f"{neded_review:>4d}/{total:<4d} ({neded_review/total:.2%})")
+        # Reglas para retroalimentar el motor de canonización
+        rules = report.canonizable_rules()
+        print("\nReglas para añadir al motor:")
+        for rule, info in rules.items():
+            print(f"  {rule}  ({info['apariciones']}×)  cols={info['columnas']}")
 
-        print("=" * WIDTH)
+        # Cola de revisión humana
+        queue = report.review_queue(max_items=5)
+        print(f"\nCola de revisión ({len(queue)} items):")
+        for item in queue:
+            print(f"  key={item['key']}  {item['categoria']}  conf={item['confianza']:.2f}")
+
+        # Métricas del pipeline (si se tiene la info de las etapas)
+        pipeline = DiffReport.reduction_pipeline(
+            n_raw           = 142,    # diffs sin canonización
+            n_pre           = 23,     # tras PRE SQL
+            n_post          = len(classifications),   # tras POST Python
+            classifications = classifications,
+        )
+        print("\nPipeline:")
+        print(json.dumps(pipeline, indent=2))
+
+        # ─────────────────────────────────────────────────────────────────
+        #  Narrativa LLM (una sola llamada)
+        # ─────────────────────────────────────────────────────────────────
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            narrator  = ReportNarrator()
+            narrative = narrator.full_narrative(report, pipeline_stats=pipeline)
+
+            print("\n── DIAGNÓSTICO ──────────────────────────────────────────")
+            print(narrative["diagnose"])
+            print("\n── RECOMENDACIONES ──────────────────────────────────────")
+            print(narrative["recommend"])
+            print("\n── RESUMEN EJECUTIVO ────────────────────────────────────")
+            print(narrative["executive_summary"])
+        else:
+            narrative = None
+            print("\n(Narrativa LLM omitida: ANTHROPIC_API_KEY no definida)")
+
+        # ─────────────────────────────────────────────────────────────────
+        # 6. Exportar
+        # ─────────────────────────────────────────────────────────────────
+        
+        sufijo = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ReportExporter.to_json(report, narrative, path=f"reports/output_report_{sufijo}.json")
+        ReportExporter.to_markdown(report, narrative, path=f"reports/output_report_{sufijo}.md")
+        print(f"\nInformes guardados: reports/output_report_{sufijo}.json  reports/output_report_{sufijo}.md")
+
+
+    # def report_statistics(self, classifications: List[DiffClassification]):
+    #     """Estadísticas de clasificación."""
+    #     from collections import Counter
+    #     stats = Counter(c.categoria for c in classifications)
+    #     actions = Counter(c.accion for c in classifications)
+    #     falsos_positivos = sum(1 for c in classifications if c.is_false_positive())
+    #     neded_review = sum(1 for c in classifications if c.needs_review())
+    #     total = len(classifications)
+
+    #     WIDTH = 60
+    #     LABEL = 50   # ancho fijo para etiquetas
+
+    #     print("\n" + "=" * WIDTH)
+    #     print("REPORTE DE CLASIFICACIÓN".center(WIDTH))
+    #     print("=" * WIDTH)
+
+    #     print(f"{'Total procesado':<{LABEL}} : {len(classifications):>4d}")
+
+    #     print("\n--- Clasificación por categoría ---")
+    #     for cat, count in stats.most_common():
+    #         print(f"{cat.name:<{LABEL}} : {count:>4d}")
+
+    #     print("\n--- Clasificación por acción ---")
+    #     for action, count in actions.most_common():
+    #         print(f"{action.name:<{LABEL}} : {count:>4d}")
+
+    #     print("\n--- Resumen de Detalles ---")
+    #     print(f"{'Falsos positivos (canonizables/equivalentes)':<{LABEL}} : "
+    #         f"{falsos_positivos:>4d}/{total:<4d} ({falsos_positivos/total:.2%})")
+
+    #     print(f"{'Requieren revisión (contextual/uncertain/error)':<{LABEL}} : "
+    #         f"{neded_review:>4d}/{total:<4d} ({neded_review/total:.2%})")
+
+    #     print("=" * WIDTH)
         
     def report_one(self, row:DiffClassification):
         

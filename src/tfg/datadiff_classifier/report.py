@@ -53,7 +53,7 @@ _LABEL = 46    # ancho etiqueta en tablas de consola
 # Emojis por categoría para los informes de consola
 _CAT_ICON = {
     DiffCategory.CANONIZABLE:          "🔵",
-    DiffCategory.EQUIVALENT:            "🟢",
+    DiffCategory.EQUIVALENT:           "🟢",
     DiffCategory.DIFFERENT_STRUCTURAL: "🔴",
     DiffCategory.DIFFERENT_CONTEXTUAL: "🟠",
     DiffCategory.DIFFERENT_SEMANTICAL: "🟡",
