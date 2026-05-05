@@ -11,6 +11,18 @@ class DiffCategory(Enum):
     DIFFERENT_SEMANTICAL = "different_semantical"
     UNCERTAIN            = "uncertain"
     ERROR                = "error"
+    
+# Grupos funcionales: frozenset de valores string (no de miembros del enum)
+# para evitar el problema de asignación en enum post-definición
+_FALSE_POSITIVE_VALUES = frozenset({
+    "CANONIZABLE",
+    "EQUIVALENT_SEMANTIC",
+})
+_NEEDS_REVIEW_VALUES = frozenset({
+    "DIFFERENT_CONTEXTUAL",
+    "UNCERTAIN",
+    "ERROR",
+})
 class DiffAction(Enum):
     INSERT = "INSERT"
     DELETE = "DELETE"
@@ -57,21 +69,17 @@ class DiffClassification:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
     
+    def is_real_difference(self) -> bool:
+        """True solo para DIFFERENT_STRUCTURAL."""
+        return self.categoria == DiffCategory.DIFFERENT_STRUCTURAL
+    
     def is_false_positive(self) -> bool:
         """True si la diferencia es resuelta por canonización o equivalencia."""
-        return self.categoria in (
-            DiffCategory.CANONIZABLE,
-            DiffCategory.EQUIVALENT,
-        )
+        return self.categoria.value in _FALSE_POSITIVE_VALUES
 
     def needs_review(self) -> bool:
         """True si requiere revisión humana."""
-        return self.categoria in (
-            DiffCategory.DIFFERENT_CONTEXTUAL, #requiere conocimiento de dominio
-            DiffCategory.UNCERTAIN,
-            DiffCategory.ERROR
-        )
-
+        return self.categoria.value in _NEEDS_REVIEW_VALUES
 @dataclass
 class SegmentStructure:
     """Estructura de un segmento de datos, que puede ser una tabla, un bloque de filas, o una fila individual."""
