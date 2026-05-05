@@ -9,4 +9,5 @@ data/
 src/tfg/.env
 docs/
 logs/
+reports/
 .DS_Store
