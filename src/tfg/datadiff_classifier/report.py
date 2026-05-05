@@ -56,7 +56,7 @@ _CAT_ICON = {
     DiffCategory.EQUIVALENT:           "🟢",
     DiffCategory.DIFFERENT_STRUCTURAL: "🔴",
     DiffCategory.DIFFERENT_CONTEXTUAL: "🟠",
-    DiffCategory.DIFFERENT_SEMANTICAL: "🟡",
+    DiffCategory.DIFFERENT_SEMANTIC:   "🟡",
     DiffCategory.UNCERTAIN:            "⚪",
     DiffCategory.ERROR:                "❌",
 }

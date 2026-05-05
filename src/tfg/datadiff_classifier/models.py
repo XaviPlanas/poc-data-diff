@@ -8,7 +8,7 @@ class DiffCategory(Enum):
     EQUIVALENT           = "equivalent_semantic"
     DIFFERENT_CONTEXTUAL = "different_contextual"
     DIFFERENT_STRUCTURAL = "different_structural"
-    DIFFERENT_SEMANTICAL = "different_semantical"
+    DIFFERENT_SEMANTIC   = "different_semantic"
     UNCERTAIN            = "uncertain"
     ERROR                = "error"
     
