@@ -16,6 +16,7 @@ Uso integrado con classifier.py:
     report.print_details()                     # reemplaza report_details()
 
     # Para la memoria del TFG
+# ──────────────────────────────────────────────────────
     narrator = ReportNarrator()
     narrative = narrator.full_narrative(report, pipeline_stats)
     ReportExporter.to_markdown(report, narrative, "output_report.md")
@@ -33,33 +34,13 @@ from typing       import Dict, List, Optional
 import logging
 logger = logging.getLogger(__name__)
 
-# Import diferido para no romper si los módulos no están en path
-try:
-    from tfg.datadiff_classifier.models import (
-        _FALSE_POSITIVE_VALUES, _NEEDS_REVIEW_VALUES,
-        DiffClassification, DiffCategory, DiffAction
-    )
-except ImportError:
-    from models import DiffClassification, DiffCategory, DiffAction, _FALSE_POSITIVE_VALUES, _NEEDS_REVIEW_VALUES
+from tfg.datadiff_classifier.models import ( DiffClassification, DiffCategory, DiffAction, 
+                    _FALSE_POSITIVE_VALUES, _NEEDS_REVIEW_VALUES, _CAT_ICON
+                    )
 
-
-# ─────────────────────────────────────────────────────────────────
 # Constantes de presentación
-# ─────────────────────────────────────────────────────────────────
-
 _W     = 60    # ancho de línea para print
 _LABEL = 46    # ancho etiqueta en tablas de consola
-
-# Emojis por categoría para los informes de consola
-_CAT_ICON = {
-    DiffCategory.CANONIZABLE:          "🔵",
-    DiffCategory.EQUIVALENT:           "🟢",
-    DiffCategory.DIFFERENT_STRUCTURAL: "🔴",
-    DiffCategory.DIFFERENT_CONTEXTUAL: "🟠",
-    DiffCategory.DIFFERENT_SEMANTIC:   "🟡",
-    DiffCategory.UNCERTAIN:            "⚪",
-    DiffCategory.ERROR:                "❌",
-}
 
 # ─────────────────────────────────────────────────────────────────
 # DiffReport

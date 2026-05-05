@@ -9,20 +9,18 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ollama import Client
 import anthropic
-from tomlkit import datetime 
-from tfg.datadiff_classifier import report
+from datetime import datetime 
 
 from tfg.datadiff_classifier.models import DiffEvent, DiffRow, DiffClassification, DiffCategory, DiffAction, SegmentStructure
-from tfg.datadiff_classifier.narrator_stats import ReportExporter
+from tfg.datadiff_classifier.report import DiffReport, ReportNarrator, ReportExporter
 from tfg.datadiff_classifier.prompts import ( SYSTEM_PROMPT, SYSTEM_PROMPT_V2, 
                                              SCHEMA_CONTEXT_TITANIC, 
                                              USER_PROMPT_V2,
                                              FEW_SHOT_EXAMPLES
 )
 
-import logging, ReportExporter
-from tfg.datadiff_classifier.report import DiffReport, ReportNarrator
-from tfg.datadiff_classifier.report import ReportNarrator
+import logging
+
 from tfg.logging_config import setup_logging, timed
 logger = logging.getLogger(__name__)
 
@@ -222,7 +220,7 @@ class DiffClassifier:
             return DiffClassification(
                 key=row.key,
                 accion=accion,
-                categoria=DiffCategory.DIFFERENT_SEMANTICAL,
+                categoria=DiffCategory.DIFFERENT_SEMANTIC,
                 confianza=1.0,
                 columnas_afectadas=['*'],
                 explicacion=f"{accion.name} del registro con clave {row.key}",
