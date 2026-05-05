@@ -74,11 +74,11 @@ with timed(logger, "Clasificación de diferencias", level="INFO"):
 
 logger.info(f"Total de clasificaciones obtenidas: {len(clasificaciones)}")
 
-print("\nEjemplos de 5 clasificaciones:\n") 
-for c in clasificaciones[:5] :
-    print(c.to_json())
+# print("\nEjemplos de 5 clasificaciones:\n") 
+# for c in clasificaciones[:5] :
+#     print(c.to_json())
 
-clasificador.report_statistics(clasificaciones)
+clasificador.report(clasificaciones)
 
 clasificador.report_details(clasificaciones)
 
