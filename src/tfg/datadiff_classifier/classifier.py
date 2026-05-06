@@ -34,7 +34,7 @@ class DiffClassifier:
                  api_key: str = None,
                  prompt_template: str = None,
                  few_shot: bool = True,
-                 uncertainty_threshold: float = 0.7,
+                 uncertainty_threshold: float = 0.6,    
                  max_retries: int = 3):
         
         
@@ -220,7 +220,7 @@ class DiffClassifier:
             return DiffClassification(
                 key=row.key,
                 accion=accion,
-                categoria=DiffCategory.DIFFERENT_SEMANTIC,
+                categoria=DiffCategory.DIFFERENT,
                 confianza=1.0,
                 columnas_afectadas=['*'],
                 explicacion=f"{accion.name} del registro con clave {row.key}",
