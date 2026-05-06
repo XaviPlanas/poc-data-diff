@@ -4,22 +4,32 @@ import json
 import hashlib
 
 class DiffCategory(Enum):
-    CANONIZABLE          = "canonizable"
-    EQUIVALENT           = "equivalent_semantic"
-    DIFFERENT_CONTEXTUAL = "different_contextual"
-    DIFFERENT_STRUCTURAL = "different_structural"
-    DIFFERENT_SEMANTIC   = "different_semantic"
-    UNCERTAIN            = "uncertain"
-    ERROR                = "error"
+    CANONIZABLE  = "CANONIZABLE"     # 🔵 regla determinista disponible
+    EQUIVALENT   = "EQUIVALENT"      # 🟢 equivalencia de dominio (puede incluir unidades)
+    DOMAIN       = "DOMAIN"          # 🟡 depende de reglas de negocio externas
+    DIFFERENT    = "DIFFERENT"       # 🔴 diferencia de significado real (crítico)
+    UNCERTAIN    = "UNCERTAIN"       # ⚪ confianza insuficiente
+    ERROR        = "ERROR"           # ❌ fallo técnico en la clasificación
+    
+   
+
+_CAT_ICON = {
+    DiffCategory.CANONIZABLE:          "🔵",
+    DiffCategory.EQUIVALENT:           "🟢",
+    DiffCategory.DIFFERENT:            "🔴",
+    DiffCategory.DOMAIN:               "🟡",
+    DiffCategory.UNCERTAIN:            "⚪",
+    DiffCategory.ERROR:                "❌",
+}
     
 # Grupos funcionales: frozenset de valores string (no de miembros del enum)
 # para evitar el problema de asignación en enum post-definición
 _FALSE_POSITIVE_VALUES = frozenset({
     "CANONIZABLE",
-    "EQUIVALENT_SEMANTIC",
+    "EQUIVALENT",
 })
 _NEEDS_REVIEW_VALUES = frozenset({
-    "DIFFERENT_CONTEXTUAL",
+    "DOMAIN",
     "UNCERTAIN",
     "ERROR",
 })
@@ -71,7 +81,7 @@ class DiffClassification:
     
     def is_real_difference(self) -> bool:
         """True solo para DIFFERENT_STRUCTURAL."""
-        return self.categoria == DiffCategory.DIFFERENT_STRUCTURAL
+        return self.categoria == DiffCategory.DIFFERENT
     
     def is_false_positive(self) -> bool:
         """True si la diferencia es resuelta por canonización o equivalencia."""

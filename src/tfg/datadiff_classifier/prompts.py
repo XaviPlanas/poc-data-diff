@@ -847,19 +847,19 @@ como expresión SQL o Python.
   Señales: diferencia de espacios, casing, precisión numérica trivial, \
 formato de fecha distinto para el mismo instante, NFC vs NFD.
 
-EQUIVALENT
-  Los valores son semánticamente equivalentes pero la equivalencia requiere \
-conocimiento de dominio que no es expresable como regla determinista.
+EQUIVALENT  
+Los valores son semánticamente equivalentes. Evalúa si los valores representan \
+  lo mismo pero requieren conocimiento externo o tablas de correspondencia.
   Señales: abreviaturas conocidas ("BCN"/"Barcelona"), sinónimos, \
 "N/A" vs cadena vacía, distintas unidades de medida del mismo SI.
 
-DIFFERENT_STRUCTURAL
+DIFFERENT 
   Los valores son semánticamente distintos de forma objetiva y verificable. \
 Sin ambigüedad de interpretación posible.
   Señales: estados opuestos ("approved"/"rejected"), números claramente \
 distintos, fechas en días diferentes, texto con distinto significado real.
 
-DIFFERENT_CONTEXTUAL
+ DOMAIN
   Los valores son distintos pero la relevancia depende de reglas de negocio \
 externas. La diferencia es real pero podría ser aceptable según el contexto.
   Señales: distinta moneda, prefijo telefónico nacional vs internacional, \
@@ -1053,3 +1053,20 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
 }""",
     },
 ]
+NARRATIVE_REPORT_PROMPT = """\
+  Analiza estas estadísticas de comparación de datos y produce los tres \
+bloques siguientes separados por las etiquetas exactas indicadas.
+
+{context}
+
+## DIAGNÓSTICO
+(2-3 frases: qué tipo de problema domina, columnas más críticas, \
+
+## RECOMENDACIONES
+(lista priorizada: ALTA/MEDIA/BAJA — Columna — Regla SQL/Python — impacto estimado)
+
+## RESUMEN EJECUTIVO
+(máximo 150 palabras, apto para la memoria de un TFG: qué se detectó, \
+cómo el pipeline redujo los falsos positivos en cada etapa, conclusión \
+sobre la efectividad del sistema)
+"""
