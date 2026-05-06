@@ -247,7 +247,7 @@ class DiffReport:
         priority = {
             DiffCategory.UNCERTAIN:            0,
             DiffCategory.ERROR:                1,
-            DiffCategory.DIFFERENT_CONTEXTUAL: 2,
+            DiffCategory.DOMAIN:               2,
         }
         candidates = [
             c for c in self.classifications if c.needs_review()
@@ -393,6 +393,7 @@ class DiffReport:
         self,
         false_positives: bool = True,
         review:          bool = True,
+        avoid_real_differences: bool = True,
     ) -> None:
         """
         Reemplaza classifier.report_details().
@@ -430,10 +431,11 @@ class DiffReport:
             for c in rv:
                 _print_one(c)
 
-        real = [c for c in self.classifications if c.is_real_difference()]
-        print(f"\n🔴 Diferencias reales ({len(real)}):")
-        for c in real:
-            _print_one(c)
+        if not avoid_real_differences:
+            real = [c for c in self.classifications if c.is_real_difference()]
+            print(f"\n🔴 Diferencias reales ({len(real)}):")
+            for c in real:
+                _print_one(c)
 
         print(f"\n{'=' * _W}")
 
@@ -528,7 +530,6 @@ bloques siguientes separados por las etiquetas exactas indicadas.
 
 ## DIAGNÓSTICO
 (2-3 frases: qué tipo de problema domina, columnas más críticas, \
-señales del clasificador)
 
 ## RECOMENDACIONES
 (lista priorizada: ALTA/MEDIA/BAJA — Columna — Regla SQL/Python — impacto estimado)
