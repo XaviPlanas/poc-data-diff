@@ -66,7 +66,7 @@ with timed(logger, "Búsqueda de diferencias con data-diff", level="INFO"):
 ###################################
 with timed(logger, "Clasificación de diferencias", level="INFO"):
     clasificaciones = []
-    clasificaciones = clasificador.classify_row_by_row(diffrows)
+    clasificaciones = clasificador.classify_row_by_row(diffrows,30)
 
 ###################################
 # Reportamos las diferencias
