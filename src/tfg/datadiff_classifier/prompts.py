@@ -873,11 +873,11 @@ UNCERTAIN
 
 1. ¿Son semánticamente equivalentes?
    Sí + regla exacta disponible  → CANONIZABLE
-   Sí + requiere conocimiento     → EQUIVALENT_SEMANTIC
+   Sí + requiere conocimiento     → EQUIVALENT
 
 2. Son distintos. ¿La diferencia es objetiva?
-   Sí, sin ambigüedad            → DIFFERENT_STRUCTURAL
-   Depende del contexto externo  → DIFFERENT_CONTEXTUAL
+   Sí, sin ambigüedad            → DIFFERENT
+   Sí, pero depende de contexto o reglas externas → DOMAIN
 
 3. No puedes decidir             → UNCERTAIN
 
@@ -903,7 +903,7 @@ Fuente B ({source_b}):
 Responde con este JSON exacto y nada más:
 {{
   "key": "{pk}",
-  "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+  "categoria": "CANONIZABLE|EQUIVALENT|DIFFERENT|DOMAIN|UNCERTAIN",
   "confianza": 0.0,
   "columnas_afectadas": [],
   "explicacion": "",
@@ -928,7 +928,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
             Responde con este JSON exacto y nada más:
             {
               "key": "1",
-              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "categoria": "CANONIZABLE|EQUIVALENT|DIFFERENT|DOMAIN|UNCERTAIN",
               "confianza": 0.0,
               "columnas_afectadas": [],
               "explicacion": "",
@@ -963,7 +963,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
             Responde con este JSON exacto y nada más:
             {
               "key": "14",
-              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "categoria": "CANONIZABLE|EQUIVALENT|DIFFERENT|DOMAIN|UNCERTAIN",
               "confianza": 0.0,
               "columnas_afectadas": [],
               "explicacion": "",
@@ -975,7 +975,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
         "content": """\
 {
   "key": "14",
-  "categoria": "EQUIVALENT_SEMANTIC",
+  "categoria": "EQUIVALENT",
   "confianza": 0.92,
   "columnas_afectadas": ["embarked"],
   "explicacion": "\"C\" y \"Cherbourg\" designan el mismo puerto. La equivalencia requiere conocimiento del esquema Titanic, no es una regla de transformación determinista.",
@@ -998,7 +998,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
             Responde con este JSON exacto y nada más:
             {
               "key": "33",
-              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "categoria": "CANONIZABLE|EQUIVALENT|DIFFERENT|DOMAIN|UNCERTAIN",
               "confianza": 0.0,
               "columnas_afectadas": [],
               "explicacion": "",
@@ -1010,7 +1010,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
         "content": """\
 {
   "key": "33",
-  "categoria": "DIFFERENT_STRUCTURAL",
+  "categoria": "DIFFERENT",
   "confianza": 0.99,
   "columnas_afectadas": ["survived"],
   "explicacion": "El valor de survived cambia de 0 (no sobrevivió) a 1 (sobrevivió). Es una diferencia semántica objetiva e inequívoca.",
@@ -1033,7 +1033,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
             Responde con este JSON exacto y nada más:
             {
               "key": "55",
-              "categoria": "CANONIZABLE|EQUIVALENT_SEMANTIC|DIFFERENT_STRUCTURAL|DIFFERENT_CONTEXTUAL|UNCERTAIN",
+              "categoria": "CANONIZABLE|EQUIVALENT|DIFFERENT|DOMAIN|UNCERTAIN",
               "confianza": 0.0,
               "columnas_afectadas": [],
               "explicacion": "",
@@ -1045,7 +1045,7 @@ FEW_SHOT_EXAMPLES: List[Dict] = [
         "content": """\
 {
   "key": "55",
-  "categoria": "DIFFERENT_CONTEXTUAL",
+  "categoria": "DOMAIN",
   "confianza": 0.85,
   "columnas_afectadas": ["fare", "currency"],
   "explicacion": "Los valores difieren en moneda y cantidad. Podrían ser equivalentes aplicando el tipo de cambio histórico GBP/USD, pero esa equivalencia depende de datos externos no disponibles en este contexto.",
