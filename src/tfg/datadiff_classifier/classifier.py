@@ -426,21 +426,6 @@ class DiffClassifier:
     #         f"{neded_review:>4d}/{total:<4d} ({neded_review/total:.2%})")
 
     #     print("=" * WIDTH)
-        
-    def report_one(self, row:DiffClassification):
-        
-        """Reporte detallado de una clasificación individual."""
-        print("\n" + "=" * 60)
-        print(f"Detalle para clave: {row.key}")
-        print("=" * 60)
-        print(f"Acción: {row.accion.name}")
-        print(f"Categoría: {row.categoria.name}")
-        print(f"Confianza: {row.confianza:.2f}")
-        print(f"Columnas afectadas: {row.columnas_afectadas}")
-        print(f"Explicación: {row.explicacion}")
-        print(f"Row A: {json.dumps(row.row_a, ensure_ascii=False)}")
-        print(f"Row B: {json.dumps(row.row_b, ensure_ascii=False)}")
-        print("=" * 60)
 
     def report_details(self, classifications: List[DiffClassification]):    
         """Reporte detallado de clasificaciones."""
