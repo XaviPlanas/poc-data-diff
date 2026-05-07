@@ -90,6 +90,21 @@ class DiffClassification:
     def needs_review(self) -> bool:
         """True si requiere revisión humana."""
         return self.categoria.value in _NEEDS_REVIEW_VALUES
+    
+    def report(self):     
+        """Reporte detallado de una clasificación individual."""
+        print("\n" + "=" * 60)
+        print(f"Detalle para clave: {self.key}")
+        print("=" * 60)
+        print(f"Acción: {self.accion.name}")
+        print(f"Categoría: {self.categoria.name}")
+        print(f"Confianza: {self.confianza:.2f}")
+        print(f"Columnas afectadas: {self.columnas_afectadas}")
+        print(f"Explicación: {self.explicacion}")
+        print(f"Row A: {json.dumps(self.row_a, ensure_ascii=False)}")
+        print(f"Row B: {json.dumps(self.row_b, ensure_ascii=False)}")
+        print("=" * 60)
+    
 @dataclass
 class SegmentStructure:
     """Estructura de un segmento de datos, que puede ser una tabla, un bloque de filas, o una fila individual."""

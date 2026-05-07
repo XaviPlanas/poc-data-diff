@@ -319,7 +319,6 @@ class DiffClassifier:
         return all_results
 
     def report_classifications(self, classifications: List[DiffClassification]):
-        """Método placeholder para generación de reportes."""
         
         report = DiffReport(classifications)
 
