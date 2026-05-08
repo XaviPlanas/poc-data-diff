@@ -1,13 +1,21 @@
-env/
+#conserva directorio raíz para facilitar visibilidad estructura
+data/*
+!docs/.gitkeep
+docs/*
+!docs/.gitkeep
+logs/*
+!logs/.gitkeep
+reports/*
+!reports/.gitkeep
+env/*
+!env/.gitkeep
+
+#no conserves directorio
 venv/
+.DS_Store
+.vscode/
+src/tfg/.env
 __pycache__/
 *.pyc
 .ipynb_checkpoints
 src/tfg/data/
-data/
-.vscode/
-src/tfg/.env
-docs/
-logs/
-reports/
-.DS_Store
