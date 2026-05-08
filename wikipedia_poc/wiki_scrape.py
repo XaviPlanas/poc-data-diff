@@ -1,11 +1,5 @@
-  
 """
-TFG - Wikipedia Snapshot Builder
----------------------------------
-Construye una tabla denormalizada de snapshots de páginas
-a partir de revisiones históricas.
-
-Fuente: Wikipedia API
+Construye snapshots históricos de páginas de Wikipedia via API URL de Wikipedia
 """
 
 import requests
@@ -15,41 +9,30 @@ import time
 import hashlib
 from datetime import datetime
 
-
 import logging
 from tfg.logging_config import setup_logging, timed
+setup_logging(level="DEBUG", log_file="logs/wiki_snapshot.log")
 
-setup_logging(level="DEBUG")
-logger = logging.getLogger("wiki_poc.wiki_scrape_data")
 
-API = "https://es.wikipedia.org/w/api.php"
-PAGES_SIZE=1000
-PREFIX_FILE="data/raw/wiki"
-PAGES_FILE = f"{PREFIX_FILE}_pages_{PAGES_SIZE}.json"
+logger = logging.getLogger("tfg.wikipedia_poc.wiki_scrape")
 
-# =========================
-# CONFIGURACIÓN
-# =========================
-
-API_URL = "https://en.wikipedia.org/w/api.php"
+# ===================== CONFIG =====================
+API_URL = "https://es.wikipedia.org/w/api.php"   
+PAGE_LIMIT = 10000
+REQUEST_SLEEP = 0.3
+PREFIX_FILE = "data/raw/wiki"
 
 SNAPSHOT_DATE_1 = "2024-01-01T00:00:00Z"
 SNAPSHOT_DATE_2 = "2024-02-01T00:00:00Z"
 
-PAGE_LIMIT = 1000
-REQUEST_SLEEP = 0.2
-
 PAGES_FILE = f"{PREFIX_FILE}_pages_{PAGE_LIMIT}.json"
-OUTPUT_FILE = f"{PREFIX_FILE}_page_snapshot_wide.json"
+headers = {"User-Agent": "TFG-Wikipedia-Snapshot-Builder (xavi.tfg@example.com)"}
 
-headers = { "User-Agent": "Mozilla/5.0 (Xavi TFG scraper)"}   
 
-def fetch_random_pages(limit=1000):
-    """
-    Obtiene páginas aleatorias desde Wikipedia.
-    """
+
+def fetch_random_pages(limit=PAGE_LIMIT):
+    """Obtiene páginas aleatorias (reproducible)."""
     pages = []
-
     while len(pages) < limit:
         params = {
             "action": "query",
@@ -59,189 +42,150 @@ def fetch_random_pages(limit=1000):
             "rnnamespace": 0
         }
 
-        try:
-            response = requests.get(API_URL, params=params, headers=headers)
-            response.raise_for_status()
-            if response.status_code != 200:
-                raise RuntimeError(f"HTTP error {response.status_code}: {response.text[:200]}")
-            data = response.json()
-        
-        except Exception as e:
-            logger.exception("Request failed")
-
-        logger.debug("STATUS:", response.status_code)
-        logger.debug("CONTENT-TYPE:", response.headers.get("Content-Type"))
-        logger.debug("TEXT:", response.text[:500])
-        
+        response = requests.get(API_URL, params=params, headers=headers, timeout=15)
+        response.raise_for_status()
         data = response.json()
-        pages.extend(data["query"]["random"])
 
-    return [
-        {"pageid": p["id"], "title": p["title"]}
-        for p in pages[:limit]
-    ]
+        pages.extend(data["query"]["random"])
+        
+        if i % 500 == 0 and i > 0:
+            logger.debug(f"Procesadas {i:5,}/{len(pages):,} páginas ({i/len(pages):.1%})")
+
+    return [{"pageid": p["id"], "title": p["title"]} for p in pages[:limit]]
 
 
 def load_or_create_pages():
-    """
-    Queremos reproducibilidad del experimento.
-    """
+    """Carga páginas o genera nuevas (para reproducibilidad)."""
     if os.path.exists(PAGES_FILE):
-        logger.info("Cargando páginas existentes desde {PAGES_FILE}")
-        with open(PAGES_FILE, "r") as f:
+        logger.info(f"Cargando páginas desde {PAGES_FILE}")
+        with open(PAGES_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    logger.info("No se ha encontrando fichero de páginas {PAGES_FILE}")
-    with timed (logger, "Generando nuevas páginas..."):
-        pages = fetch_random_pages(PAGE_LIMIT)
 
-    logger.debug("Guardando fichero de págincas en {PAGES_FILE}")
-    with open(PAGES_FILE, "w") as f:
-        json.dump(pages, f, indent=2)
+    logger.info("Generando nuevo conjunto de páginas aleatorias...")
+    pages = fetch_random_pages(PAGE_LIMIT)
 
+    #os.makedirs(os.path.dirname(PAGES_FILE), exist_ok=True)
+    with open(PAGES_FILE, "w", encoding="utf-8") as f:
+        json.dump(pages, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Guardadas {len(pages)} páginas en {PAGES_FILE}")
     return pages
 
 
-def get_page_snapshot(pageid, snapshot_date):
-    """
-    Obtiene el estado de una página en una fecha dada.
-    """
-
+def get_page_snapshot(pageid: int, snapshot_date: str):
+    """Obtiene el estado de una página en una fecha concreta."""
     params = {
         "action": "query",
         "format": "json",
         "pageids": pageid,
         "prop": "info|revisions|categories|links",
-
         "inprop": "url",
-
         "rvlimit": 1,
         "rvstart": snapshot_date,
         "rvprop": "ids|timestamp|user|comment|size|content",
         "rvslots": "main",
-
         "cllimit": 50,
-        "pllimit": 50
+        "pllimit": 50,
+        "redirects": 1
     }
 
     try:
-        r = requests.get(API_URL, params=params, headers=headers)
+        r = requests.get(API_URL, params=params, headers=headers, timeout=20)
         
         if r.status_code == 429:
-            retry_after = int(r.headers.get("Retry-After", 5))
-            logger.warning(f"Rate limit hit. Sleeping {retry_after}s...")
-            time.sleep(retry_after)
+            retry = int(r.headers.get("Retry-After", 8))
+            logger.warning(f"Rate limit → esperando {retry}s")
+            time.sleep(retry)
             return get_page_snapshot(pageid, snapshot_date)
-        elif r.status_code != 200:
-            raise RuntimeError(f"HTTP error {r.status_code}: {r.text[:200]}")
-        r = r.json()
+
+        r.raise_for_status()
+        data = r.json()
+
+        page = data["query"]["pages"].get(str(pageid), {})
+        if not page or "missing" in page:
+            return {"pageid": pageid, "title": None, "error": "missing"}
+
+        revision = (page.get("revisions") or [{}])[0]
+        content = revision.get("slots", {}).get("main", {}).get("*", "")
+
+        return {
+            "pageid": pageid,
+            "title": page.get("title"),
+            "revision_id": revision.get("revid"),
+            "timestamp": revision.get("timestamp"),
+            "user": revision.get("user"),
+            "comment": revision.get("comment"),
+            "size": revision.get("size"),
+            "page_length": page.get("length"),
+            "categories": [c.get("title") for c in page.get("categories", [])],
+            "links": [l.get("title") for l in page.get("links", [])],
+            "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest() if content else None,
+        }
+
     except Exception as e:
-        logger.exception("Request failed")
-    
-    page = r["query"]["pages"].get(str(pageid), {})
+        logger.error(f"Error en pageid {pageid}: {e}")
+        return {"pageid": pageid, "title": None, "error": str(e)}
 
-    revision = (page.get("revisions") or [{}])[0]
-
-    content = revision.get("slots", {}).get("main", {}).get("*", "")
-
-    return {
-        "pageid": pageid,
-        "title": page.get("title"),
-        "revision_id": revision.get("revid"),
-        "timestamp": revision.get("timestamp"),
-        "user": revision.get("user"),
-        "comment": revision.get("comment"),
-        "size": revision.get("size"),
-        "page_length": page.get("length"),
-
-        "categories": [
-            c.get("title") for c in page.get("categories", [])
-        ],
-
-        "links": [
-            l.get("title") for l in page.get("links", [])
-        ],
-
-        "content_hash": hashlib.sha256(
-            content.encode("utf-8")
-        ).hexdigest() if content else None
-    }
 
 def build_snapshot_dataset(pages, snapshot_date):
-    """
-    Construye dataset wide para una fecha.
-    """
-
+    """Construye snapshot para una fecha."""
     dataset = []
-
+    
     for i, p in enumerate(pages):
-        pageid = p["pageid"]
-
-        data = get_page_snapshot(pageid, snapshot_date)
+        data = get_page_snapshot(p["pageid"], snapshot_date)
 
         row = {
             "snapshot_date": snapshot_date,
             "pageid": data["pageid"],
-            "title": data["title"],
-
-            "revision_id": data["revision_id"],
-            "revision_timestamp": data["timestamp"],
-
-            "user": data["user"],
-            "comment": data["comment"],
-
-            "size": data["size"],
-            "page_length": data["page_length"],
-
-            "categories": "|".join(data["categories"] or []),
-            "links": "|".join(data["links"] or []),
-
-            "content_hash": data["content_hash"],
-
-            # métricas derivadas
-            "num_categories": len(data["categories"] or []),
-            "num_links": len(data["links"] or [])
+            "title": data.get("title"),
+            "revision_id": data.get("revision_id"),
+            "revision_timestamp": data.get("timestamp"),
+            "user": data.get("user"),
+            "comment": data.get("comment"),
+            "size": data.get("size"),
+            "page_length": data.get("page_length"),
+            "categories": "|".join(data.get("categories", [])),
+            "links": "|".join(data.get("links", [])),
+            "content_hash": data.get("content_hash"),
+            "num_categories": len(data.get("categories", [])),
+            "num_links": len(data.get("links", [])),
+            "error": data.get("error")
         }
 
         dataset.append(row)
 
-        if i % 100 == 0:
-            logger.debug(f"Procesadas {i} [ {(i/PAGES_SIZE)*100}% ] páginas...")
+        if i % 100 == 0 and i > 0:
+            logger.info(f"Procesadas {i}/{len(pages)} páginas ({i/len(pages):.1%})")
             time.sleep(REQUEST_SLEEP)
 
     return dataset
 
 
 def save_dataset(dataset, filename):
-    """
-    Guarda dataset en disco.
-    """
-    with open(filename, "w") as f:
-        json.dump(dataset, f, indent=2)
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(dataset, f, indent=2, ensure_ascii=False)
+    logger.info(f"Guardado: {filename} ({len(dataset)} registros)")
+
 
 def main():
-    logger.info("===================================")
-    logger.info("Wikipedia Snapshot ETL - TFG")
-    logger.info("===================================\n")
+    logger.info("=== Wikipedia Snapshot Scraper ===")
+    logger.info(f"Páginas a procesar: {PAGE_LIMIT:,}")
 
-    pages = load_or_create_pages()
+    with timed (logger, "Carga o crea páginas") :
+     pages = load_or_create_pages()
 
-    logger.info(f"Páginas cargadas: {len(pages)}")
+    with timed (logger, f"Creando snapshot 1: {SNAPSHOT_DATE_1}") :
+        snapshot_1 = build_snapshot_dataset(pages, SNAPSHOT_DATE_1)
 
-    logger.info("\nConstruyendo snapshot 1...")
-    snapshot_1 = build_snapshot_dataset(pages, SNAPSHOT_DATE_1)
+    with timed (logger, f"\nConstruyendo snapshot 2: {SNAPSHOT_DATE_2}"):
+        snapshot_2 = build_snapshot_dataset(pages, SNAPSHOT_DATE_2)
 
-    logger.info("\n[STEP] Construyendo snapshot 2...")
-    snapshot_2 = build_snapshot_dataset(pages, SNAPSHOT_DATE_2)
+    save_dataset(snapshot_1, f"{PREFIX_FILE}_snapshot_{PAGE_LIMIT}_2024-01.json")
+    save_dataset(snapshot_2, f"{PREFIX_FILE}_snapshot_{PAGE_LIMIT}_2024-02.json")
 
-    logger.info("\n[STEP] Guardando resultados...")
-
-    save_dataset(snapshot_1, f"{PREFIX_FILE}_snapshot_{PAGE_SIZES}_1.json")
-    save_dataset(snapshot_2, f"{PREFIX_FILE}_snapshot_{PAGE_SIZES}_2.json")
-
-    logger.info("\n[OK] Proceso completado")
-    logger.debug(f" - {PREFIX_FILE}_snapshot_{PAGE_SIZES}_1.json")
-    logger.debug(f" - {PREFIX_FILE}_snapshot_{PAGE_SIZES}_2.json")
-
+    logger.info(f"Procesos de scraping wikipedia de {PAGE_LIMIT} páginas finalizado")
+    logger.info(f"Total páginas procesadas: {len(pages):,}")
 
 
 if __name__ == "__main__":
