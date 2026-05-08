@@ -17,8 +17,10 @@ from sqlalchemy import (
 # -------------------
 # CONFIG
 # -------------------
-DB1_URL = "sqlite:///data/db/wikipedia_DB1.db"
-DB2_URL = "sqlite:///data/db/wikipedia_DB2.db"
+#DB1_URL = "sqlite:///data/db/wikipedia_DB1.db"
+#DB1_URL = os.getenv("WIKIPEDIA_PGSQL_URL") "postgresql+psycopg2://user:password@localhost:5432/wikipedia_poc"
+DB1_URL = os.getenv("WIKIPEDIA_MYSQL_URL")
+DB2_URL = os.getenv("WIKIPEDIA_PGSQL_URL")
 
 SNAPSHOT_DIR = "data/raw/"
 
@@ -89,14 +91,11 @@ def create_snapshot_table(table_name):
 # -------------------
 # EXISTENCE CHECK
 # -------------------
-def is_table_populated(table):
-    with engine1.connect() as conn:
+def is_table_populated(engine, table):
+    with engine.connect() as conn:
         result = conn.execute(table.select().limit(1)).fetchone()
         return result is not None
     
-    with engine2.connect() as conn:
-        result = conn.execute(table.select().limit(1)).fetchone()
-        return result is not None
 
 
 # -------------------
@@ -110,9 +109,14 @@ def import_json_dynamic(file_path):
     table = create_snapshot_table(table_name)
 
     # Evitar recargar si ya tiene datos
-    if is_table_populated(table):
-        logger.info(f"⏭️ Tabla {table_name} ya contiene datos. Se omite.")
-        return
+    is_engine1_populated = is_table_populated(engine1, table)
+    if is_engine1_populated:
+        logger.info(f"Engine 1 ( {engine1.dialect.name} ). Tabla {table_name} ya contiene datos. Se omite.")
+        
+    is_engine2_populated = is_table_populated(engine2, table)    
+    if is_engine2_populated:
+        logger.info(f"Engine 2 ( {engine2.dialect.name} ). Tabla {table_name} ya contiene datos. Se omite.")
+           
 
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -143,11 +147,15 @@ def import_json_dynamic(file_path):
         })
 
     # Insert batch
-    with engine1.begin() as conn:
-        conn.execute(table.insert(), rows)
+    if not is_engine1_populated : 
+        logger.debug(f"Poblando filas en engine1 ( {engine1.dialect.name} ).")
+        with engine1.begin() as conn:
+            conn.execute(table.insert(), rows)
     
-    with engine2.begin() as conn:
-        conn.execute(table.insert(), rows)
+    if not is_engine2_populated:
+        logger.debug(f"Poblando filas en engine2 ( {engine2.dialect.name} ).")
+        with engine2.begin() as conn:
+            conn.execute(table.insert(), rows)
 
     logger.info(f"Insertados {len(rows)} registros en {table_name}")
 

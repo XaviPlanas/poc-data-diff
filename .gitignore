@@ -19,3 +19,4 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints
 src/tfg/data/
+wikipedia_poc/.env
